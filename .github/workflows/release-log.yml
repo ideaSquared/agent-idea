@@ -1,0 +1,39 @@
+name: Release @ideasquared/log
+
+# Push a tag like log-v0.1.0 to publish packages/log as a tarball on a GitHub Release. Products install it from
+# that URL, so no package registry and no git subfolder (which `turbo prune` mishandles) are involved.
+on:
+  push:
+    tags: ['log-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - name: Version matches the tag
+        run: |
+          version=$(node -p "require('./packages/log/package.json').version")
+          [ "log-v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match packages/log version $version"; exit 1; }
+      - name: Pack
+        run: |
+          pnpm -C packages/log build
+          git diff --exit-code -- packages/log/dist || { echo "::error::packages/log/dist is out of date"; exit 1; }
+          pnpm -C packages/log pack --pack-destination "$RUNNER_TEMP"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/ideasquared-log-*.tgz \
+            --title "@ideasquared/log ${GITHUB_REF_NAME#log-v}" \
+            --notes "Install: pnpm add https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/$(basename "$RUNNER_TEMP"/ideasquared-log-*.tgz)"
