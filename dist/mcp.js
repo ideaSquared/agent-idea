@@ -8,8 +8,9 @@ function text(value, isError = false) {
 function failure(error, api) {
     if (error instanceof ApiError)
         return text(error.message, true);
-    const reason = error instanceof Error ? error.message : String(error);
-    return text(`Could not reach Agent Idea at ${api.apiUrl}: ${reason}`, true);
+    // Only the error's type, never its message: a local failure (such as a bad header) can quote the Authorization token.
+    const kind = error instanceof Error ? error.name : 'unknown error';
+    return text(`Could not reach Agent Idea at ${api.apiUrl} (${kind}).`, true);
 }
 function query(params) {
     const search = new URLSearchParams(Object.fromEntries(Object.entries(params).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])))).toString();

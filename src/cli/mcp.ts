@@ -18,8 +18,9 @@ function text(value: string, isError = false): CallToolResult {
 
 function failure(error: unknown, api: ApiDeps): CallToolResult {
   if (error instanceof ApiError) return text(error.message, true);
-  const reason = error instanceof Error ? error.message : String(error);
-  return text(`Could not reach Agent Idea at ${api.apiUrl}: ${reason}`, true);
+  // Only the error's type, never its message: a local failure (such as a bad header) can quote the Authorization token.
+  const kind = error instanceof Error ? error.name : 'unknown error';
+  return text(`Could not reach Agent Idea at ${api.apiUrl} (${kind}).`, true);
 }
 
 function query(params: Record<string, string | number | boolean | undefined>): string {

@@ -84,8 +84,17 @@ describe('check_access', () => {
     const { value } = api({}, { fetch: () => Promise.reject(new TypeError('fetch failed')) });
     const result = await callTool('check_access', { project: 'ads' }, value);
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toBe('Could not reach Agent Idea at https://agent-idea.example: fetch failed');
+    expect(textOf(result)).toBe('Could not reach Agent Idea at https://agent-idea.example (TypeError).');
     expect(textOf(result)).not.toContain('gho_secret');
+  });
+
+  it('never repeats an error message, which can quote the Authorization header', async () => {
+    const leak = new TypeError('Invalid header value: "Bearer gho_secret\n"');
+    const { value } = api({}, { fetch: () => Promise.reject(leak) });
+    const result = await callTool('check_access', { project: 'ads' }, value);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).not.toContain('gho_secret');
+    expect(textOf(result)).not.toContain('Bearer');
   });
 
   it('rejects an unknown project before calling the API', async () => {
