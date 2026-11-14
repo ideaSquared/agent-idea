@@ -11,8 +11,8 @@ idea CLI ──(your gh token)──▶ Agent Idea API (Cloudflare Worker)
                                  4. return only sanitised data
 ```
 
-Status: phase 3 of 6. Cloudflare Workers Logs, GitHub Actions runs and the `idea` CLI are in. Next:
-adopt-dont-shop's Loki and GlitchTip (staging).
+Status: phase 4 of 6. Cloudflare Workers Logs, GitHub Actions runs, adopt-dont-shop's Loki and GlitchTip (staging),
+and the `idea` CLI are in.
 
 ## The idea command
 
@@ -27,6 +27,8 @@ idea logs pairflix --search youtube           # events mentioning youtube
 idea logs gaminginit-bot --json               # JSON, for piping into other tools or an LLM
 idea runs pairflix --failed                   # recent failed GitHub Actions runs, with their ids
 idea run pairflix 43639019850                 # that run's jobs, and the sanitised log of each failed job
+idea logs ads --level error                   # adopt-dont-shop staging, from Loki
+idea errors ads --frames                      # adopt-dont-shop's top unresolved errors, with stack frames
 idea access ads                               # check you have write access
 ```
 
@@ -52,9 +54,11 @@ Every log event goes through [`sanitiseEvent`](src/sanitise.ts) before it leaves
 
 1. **Allowlist.** Only these fields are returned: `timestamp`, `level`, `service`, `route`, `status`, `durationMs`,
    `errorType`, `message`, `stack`. Anything else on the event (bodies, headers, cookies, IPs, user agents, query
-   strings) is dropped.
+   strings) is dropped. The same goes for the source formats: each source reads only the fields listed under
+   [Log sources](#log-sources).
 2. **Scrub** the message: JWTs, bearer tokens, API keys (Anthropic, GitHub, Slack, Stripe, AWS), `password=`-style
-   pairs, credentials and query strings in URLs, emails, IPv4 and IPv6, UK phone numbers and postcodes, card numbers,
+   pairs (any key ending in `token`, `secret`, `password`, `cookie`, `session` or `api_key`, so `refresh_token=` and
+   `"csrfToken":` too), any userinfo in a URL (`user:pass@`, `:pass@`, a DSN's `key@`), query strings in URLs, emails, IPv4 and IPv6, UK phone numbers and postcodes, card numbers,
    and long numbers (Discord ids and the like).
 3. **Tag** ids so one user can be followed without being identified: UUIDs and 32-hex ids become `id_xxxxxxxx`,
    prefixed ids such as `acct_…` become `acct_xxxxxxxx` (either case), and Steam IDs `steam_xxxxxxxx`. Each is an HMAC under the
@@ -79,7 +83,26 @@ emails are never written in the first place. The sanitiser is the safety net, no
 | Source | Projects | How |
 | --- | --- | --- |
 | Cloudflare Workers Logs | creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix | Workers Observability telemetry query API, filtered to the project's Worker scripts. Only the timestamp, level, service, path, status, wall time and message are read; Cloudflare's client IP, location, headers and TLS details are never touched. |
+| Loki | ads | adopt-dont-shop staging's Loki, reached through a Cloudflare Tunnel behind Cloudflare Access (see [Phase 4](#phase-4-adopt-dont-shop)). A LogQL `query_range` selects by the `service` and `level` labels only, with no line filter. From each `@ideasquared/log` JSON line only the timestamp, level, service, message, `meta.route`, `meta.status`, `meta.durationMs`, the error type and the stack's `at` lines are read; other meta fields and the error message are never touched. |
+| GlitchTip | ads | adopt-dont-shop's GlitchTip (Sentry API), through the same tunnel. The project's unresolved issues: short id, scrubbed title and culprit, count, first and last seen, level. Optionally the latest event's stack frames as `file:line`. Never the permalink, event bodies, exception values, request data, user, tags, breadcrumbs or source context. |
 | GitHub Actions | all | GitHub's API, called with **your own** token (the one that passed the write-access check), so no extra secret. Runs list the workflow, event, result, short commit and time; the branch only when it is the default branch, and never the commit message, PR title or who triggered it. A run's failed jobs come with the last lines of their log (80 by default, `--tail` up to 300), each line sanitised like any log message. |
+
+## Phase 4: adopt-dont-shop
+
+adopt-dont-shop runs on its own server, not on Workers, so its logs are in Loki and its errors in GlitchTip. Both
+sit on the staging server behind a Cloudflare Tunnel, and Cloudflare Access lets through only Agent Idea's service
+token: the Worker sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` on every request, plus a read-only
+GlitchTip API token for GlitchTip.
+
+- `idea logs ads` takes the same options as for any project, and the events come back in the same sanitised shape.
+  `--search` matches sanitised events only, among the newest ~1,000 in the window.
+- `idea errors ads [--limit n] [--frames] [--json]` lists the busiest unresolved issues. Titles and culprits are
+  scrubbed like log messages; frames are `file:line`, cut to the path after `src/`, in-app frames first.
+- Unconfigured is a valid state: until the tunnel, Access and secrets are set up, both answer `501` with
+  "ADS logs are not configured" or "ADS errors are not configured".
+
+Setting it up (cloudflared on the server, the tunnel's hostnames, the Access application and service token, the
+GlitchTip token, and the Worker's secrets and vars) is in [docs/ads-tunnel.md](docs/ads-tunnel.md).
 
 ## API
 
@@ -88,6 +111,7 @@ emails are never written in the first place. The sanitiser is the safety net, no
 | `GET /health` | `{ "ok": true }`, no token needed |
 | `GET /v1/access/:project` | `200` with your login if you can write to the project's repo; `401` with no or a bad token, `403` without write access, `404` for an unknown project |
 | `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
+| `GET /v1/errors/:project` | `{ "issues": [...] }`, the busiest unresolved errors first. Query: `limit` (default 10, max 25), `frames=true` for each issue's latest stack frames. `404` for a project with no error tracker (only `ads` has one), `501` while GlitchTip is not configured, `502` if it can't be reached |
 | `GET /v1/runs/:project` | `{ "runs": [...] }`, newest first. Query: `limit` (default 10, max 50), `failed=true` |
 | `GET /v1/runs/:project/:runId` | `{ "jobs": [...] }`: each job's result and failed steps, plus a sanitised `log` tail for failed jobs. Query: `tail` (default 80, max 300) |
 
@@ -112,6 +136,10 @@ The Worker's secrets are set once, by hand; deploys keep them:
 ```bash
 openssl rand -hex 32 | pnpm wrangler secret put PSEUDONYM_KEY
 pnpm wrangler secret put CF_API_TOKEN     # Cloudflare API token: Account > Workers Observability > Read, nothing else
+# adopt-dont-shop (docs/ads-tunnel.md), plus the ADS_* vars in wrangler.jsonc:
+pnpm wrangler secret put ADS_ACCESS_CLIENT_ID
+pnpm wrangler secret put ADS_ACCESS_CLIENT_SECRET
+pnpm wrangler secret put ADS_GLITCHTIP_TOKEN
 ```
 
 To deploy by hand instead: `pnpm run deploy` (not `pnpm deploy`, which is pnpm's own workspace command).

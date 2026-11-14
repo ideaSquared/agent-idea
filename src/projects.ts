@@ -3,10 +3,14 @@ export type Project = {
   repo: string;
   // Cloudflare Worker script names whose Workers Logs belong to the project.
   workers: readonly string[];
+  // Where the project's logs live when they are not in Workers Logs.
+  logs?: 'loki';
+  // The project's error tracker, if it has one.
+  errors?: 'glitchtip';
 };
 
 export const PROJECTS: Readonly<Record<string, Project>> = {
-  ads: { repo: 'ideaSquared/adopt-dont-shop', workers: [] },
+  ads: { repo: 'ideaSquared/adopt-dont-shop', workers: [], logs: 'loki', errors: 'glitchtip' },
   creatrgrid: {
     repo: 'ideaSquared/creatrgrid',
     workers: [

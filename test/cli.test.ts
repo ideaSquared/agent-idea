@@ -117,3 +117,46 @@ describe('idea run', () => {
     await expect(run(['run', 'pairflix'], value)).rejects.toThrow('Which run?');
   });
 });
+
+describe('idea errors', () => {
+  const issue = {
+    shortId: 'ADS-1A',
+    title: 'TypeError: no pet for [email]',
+    culprit: 'GET /api/v1/users/:param',
+    count: 17,
+    firstSeen: '2026-11-13T09:00:00.000Z',
+    lastSeen: '2026-11-14T17:00:00.000Z',
+    level: 'error',
+  };
+
+  it('prints one issue per line, busiest first, with frames underneath', async () => {
+    const { value, lines } = deps({ '/v1/errors/ads': { status: 200, body: { issues: [{ ...issue, frames: ['src/routes/pets.ts:42'] }] } } });
+    await run(['errors', 'ads', '--frames'], value);
+    expect(lines).toEqual([
+      'ADS-1A  ERROR  17x  last 2026-11-14 17:00Z  first 2026-11-13 09:00Z  TypeError: no pet for [email]  (GET /api/v1/users/:param)\n    at src/routes/pets.ts:42',
+    ]);
+  });
+
+  it('passes --limit and --frames', async () => {
+    const { value, urls } = deps({ '/v1/errors/ads': { status: 200, body: { issues: [] } } });
+    await run(['errors', 'ads', '--limit', '5', '--frames'], value);
+    expect(new URL(urls[0] ?? '').searchParams.toString()).toBe('limit=5&frames=true');
+  });
+
+  it('prints JSON with --json', async () => {
+    const { value, lines } = deps({ '/v1/errors/ads': { status: 200, body: { issues: [issue] } } });
+    await run(['errors', 'ads', '--json'], value);
+    expect(JSON.parse(lines[0] ?? '')).toEqual([issue]);
+  });
+
+  it('says when there are none', async () => {
+    const { value, lines } = deps({ '/v1/errors/ads': { status: 200, body: { issues: [] } } });
+    await run(['errors', 'ads'], value);
+    expect(lines).toEqual(['No unresolved issues.']);
+  });
+
+  it("shows the API's reason for a project with no error tracker", async () => {
+    const { value } = deps({ '/v1/errors/pairflix': { status: 404, body: { error: 'No error tracker for pairflix' } } });
+    await expect(run(['errors', 'pairflix'], value)).rejects.toThrow('No error tracker for pairflix');
+  });
+});
