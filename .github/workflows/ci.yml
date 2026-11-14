@@ -4,9 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# Runs on main go one at a time, in the order they were pushed, so an older commit never deploys after a newer one.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'main' || github.run_id }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
+
+env:
+  WRANGLER_SEND_METRICS: false
 
 jobs:
   test:
@@ -35,3 +44,19 @@ jobs:
             echo "::error::Log through @ideasquared/log instead of console. See .claude/skills/logging/SKILL.md."
             exit 1
           fi
+      # Builds the Worker as a deploy does, without deploying it.
+      - run: pnpm exec wrangler deploy --dry-run
+
+  # Deploys main through ideaSquared/shipper once the tests pass: gate, wrangler deploy, /health check
+  # (rolls back if it fails). See ship.yaml.
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+      checks: read
+      deployments: write
+    uses: ideaSquared/shipper/.github/workflows/deploy.yml@v1
+    with:
+      environment: production
+    secrets: inherit

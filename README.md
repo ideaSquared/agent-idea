@@ -98,11 +98,18 @@ pnpm dev          # wrangler dev; put PSEUDONYM_KEY and CF_API_TOKEN in .dev.var
 
 ## Deploy
 
+Merging to `main` deploys the Worker through [shipper](https://github.com/ideaSquared/shipper) (`ship.yaml`): the
+gate, `wrangler deploy`, a `/health` check that rolls back on failure, and a message in Discord. `ship status
+agent-idea`, `ship deploy agent-idea` and `ship rollback agent-idea` work as for every other product.
+
+The Worker's secrets are set once, by hand; deploys keep them:
+
 ```bash
 openssl rand -hex 32 | pnpm wrangler secret put PSEUDONYM_KEY
 pnpm wrangler secret put CF_API_TOKEN     # Cloudflare API token: Account > Workers Observability > Read, nothing else
-pnpm deploy
 ```
+
+To deploy by hand instead: `pnpm run deploy` (not `pnpm deploy`, which is pnpm's own workspace command).
 
 Wrangler creates the `ACCESS_CACHE` KV namespace on the first deploy. Keep `PSEUDONYM_KEY` stable: changing it changes
 every tag, so ids from before and after no longer match.

@@ -1,0 +1,15 @@
+# How this repo deploys. Read by ideaSquared/shipper's reusable workflow (see its README).
+product: agent-idea
+# Deploy messages go to the ideaSquared github channel (a key of PROJECTS in ideasquared-bot's src/config.ts).
+discord: ideasquared
+checks: [test]
+# `ship deploy agent-idea` starts this workflow (it runs the tests, then deploys main).
+dispatch:
+  workflow: ci.yml
+environments:
+  production: {}
+components:
+  worker:
+    type: cloudflare-worker
+    # Polled after each deploy; if it never answers, the Worker is rolled back to the previous version.
+    health: /health
