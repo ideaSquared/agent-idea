@@ -67,6 +67,7 @@ Or add it to a repo's `.mcp.json`:
 | `get_logs` | `GET /v1/logs/:project` | `project`, `since_hours` (max 168), `level`, `search`, `limit` (max 200) |
 | `list_runs` | `GET /v1/runs/:project` | `project`, `failed`, `limit` (max 50) |
 | `get_run` | `GET /v1/runs/:project/:runId` | `project`, `run_id`, `tail` (max 300) |
+| `get_errors` | `GET /v1/errors/:project` | `project` (ads only), `limit` (max 25), `frames` |
 
 - Each tool returns the API's JSON. A refusal (`401` no or bad token, `403` no write access) or a network failure comes
   back as a tool error with a plain message.
