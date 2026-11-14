@@ -50,6 +50,10 @@ export type LoggerOptions<F extends string> = {
 const FORBIDDEN_FIELD =
   /e-?mail|phone|mobile|(^|[a-z_])name$|^name|address|postcode|postal|zip|^ip$|ipaddr|ip_?address|password|passwd|secret|token|cookie|session|authori[sz]ation|card|iban|sort_?code|dob|birth|steam_?id/i;
 
+// Names the rule above would catch that hold no personal data. Kept short on purpose: add one only when it is
+// clearly not about a person.
+const ALLOWED_FIELDS: ReadonlySet<string> = new Set(['hostname', 'filename', 'pathname']);
+
 const MAX_STRING = 200;
 const ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
@@ -79,7 +83,7 @@ function describeError(error: unknown): LogEvent['error'] {
 }
 
 export function createLogger<const F extends string>(options: LoggerOptions<F>): Logger<F> {
-  const forbidden = options.fields.filter((field) => FORBIDDEN_FIELD.test(field));
+  const forbidden = options.fields.filter((field) => FORBIDDEN_FIELD.test(field) && !ALLOWED_FIELDS.has(field));
   if (forbidden.length > 0) {
     throw new Error(`Fields that hold personal data or secrets cannot be logged: ${forbidden.join(', ')}. Log an id instead.`);
   }
