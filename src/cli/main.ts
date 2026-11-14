@@ -3,6 +3,8 @@ import { parseArgs } from 'node:util';
 export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
 
   idea logs <project> [--since <hours>] [--level debug|info|warn|error] [--search <text>] [--limit <n>] [--json]
+  idea runs <project> [--failed] [--limit <n>] [--json]       recent GitHub Actions runs
+  idea run <project> <run id> [--tail <lines>] [--json]      a run's jobs, with each failed job's log
   idea access <project>
 
 Projects: ads, creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix.
@@ -20,6 +22,20 @@ export type Event = {
   message: string;
   stack?: string[];
 };
+
+type Run = {
+  id: number;
+  number: number;
+  workflow: string;
+  event: string;
+  status: string;
+  conclusion: string | null;
+  branch?: string;
+  sha: string;
+  createdAt: string;
+};
+
+type Job = { name: string; status: string; conclusion: string | null; failedSteps: string[]; log?: string[] };
 
 export type Deps = {
   apiUrl: string;
@@ -39,6 +55,23 @@ export function formatEvent(event: Event): string {
     .join('  ');
   const stack = (event.stack ?? []).map((frame) => `\n    at ${frame}`).join('');
   return `${head}  ${event.message}${stack}`;
+}
+
+const MARK: Record<string, string> = { success: '✓', failure: '✗', cancelled: '⊘', skipped: '-' };
+
+// One line per run: result, workflow, event, branch, commit, time, then the id to pass to `idea run`.
+export function formatRun(run: Run): string {
+  const result = run.status === 'completed' ? (run.conclusion ?? 'done') : run.status;
+  const time = run.createdAt.replace('T', ' ').replace(/:\d{2}Z$/, 'Z');
+  return [MARK[result] ?? '…', `${run.workflow} #${run.number}`, run.event, run.branch, run.sha, time, `id ${run.id}`]
+    .filter(Boolean)
+    .join('  ');
+}
+
+export function formatJob(job: Job): string {
+  const result = job.status === 'completed' ? (job.conclusion ?? 'done') : job.status;
+  const head = `${MARK[result] ?? '…'} ${job.name}${job.failedSteps.length > 0 ? `  (failed: ${job.failedSteps.join(', ')})` : ''}`;
+  return job.log ? `${head}\n${job.log.map((line) => `    ${line}`).join('\n')}` : head;
 }
 
 async function call(deps: Deps, path: string): Promise<unknown> {
@@ -61,11 +94,13 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
       level: { type: 'string' },
       search: { type: 'string' },
       limit: { type: 'string' },
+      failed: { type: 'boolean' },
+      tail: { type: 'string' },
       json: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
-  const [command, project] = positionals;
+  const [command, project, runId] = positionals;
   if (values.help || !command) return deps.out(USAGE);
   if (!project) throw new Error(`Which project?\n\n${USAGE}`);
 
@@ -85,6 +120,22 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
     if (body.events.length === 0) return deps.out('No log events in that window.');
     // Oldest first, like a log file.
     return [...body.events].reverse().forEach((event) => deps.out(formatEvent(event)));
+  }
+
+  if (command === 'runs') {
+    const query = new URLSearchParams({ ...(values.limit ? { limit: values.limit } : {}), ...(values.failed ? { failed: 'true' } : {}) });
+    const body = (await call(deps, `/v1/runs/${encodeURIComponent(project)}?${query}`)) as { runs: Run[] };
+    if (values.json) return deps.out(JSON.stringify(body.runs, null, 2));
+    if (body.runs.length === 0) return deps.out('No runs.');
+    return body.runs.forEach((run) => deps.out(formatRun(run)));
+  }
+
+  if (command === 'run') {
+    if (!runId || !/^\d+$/.test(runId)) throw new Error(`Which run? Pass its id, as \`idea runs\` shows.\n\n${USAGE}`);
+    const query = new URLSearchParams(values.tail ? { tail: values.tail } : {});
+    const body = (await call(deps, `/v1/runs/${encodeURIComponent(project)}/${runId}?${query}`)) as { jobs: Job[] };
+    if (values.json) return deps.out(JSON.stringify(body.jobs, null, 2));
+    return body.jobs.forEach((job) => deps.out(formatJob(job)));
   }
 
   throw new Error(`Unknown command '${command}'.\n\n${USAGE}`);

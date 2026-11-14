@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
 import { PROJECTS, type Project } from './projects.ts';
 import { routeRules } from './route-words.ts';
-import { sanitiseEvent, type SanitisedEvent } from './sanitise.ts';
+import { sanitiseEvent, scrubText, type SanitisedEvent } from './sanitise.ts';
+import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
 import { fetchWorkerLogs } from './sources/workers-logs.ts';
 
 export type Env = {
@@ -67,6 +68,44 @@ async function logs(url: URL, name: string, project: Project, env: Env, key: str
   return json({ events, scanned: sanitised.length });
 }
 
+const RunsParamsSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  failed: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+});
+
+const RunParamsSchema = z.object({
+  tail: z.coerce.number().int().min(1).max(300).default(80),
+});
+
+const MAX_LINE = 500;
+
+function badQuery(error: z.ZodError): Response {
+  return json({ error: 'Bad query', details: error.issues.map((issue) => issue.message) }, 400);
+}
+
+async function runs(url: URL, project: Project, token: string): Promise<Response> {
+  const params = RunsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
+  if (!params.success) return badQuery(params.error);
+  return json({ runs: await listRuns(project.repo, token, params.data, fetch) });
+}
+
+// One run's jobs, with the sanitised tail of each failed job's log.
+async function run(url: URL, name: string, project: Project, token: string, runId: number, key: string): Promise<Response> {
+  const params = RunParamsSchema.safeParse(Object.fromEntries(url.searchParams));
+  if (!params.success) return badQuery(params.error);
+  const rules = routeRules(name);
+  const jobs = await runJobs(project.repo, token, runId, fetch);
+  const withLogs = await Promise.all(
+    jobs.map(async (job) => {
+      if (job.conclusion !== 'failure') return job;
+      const lines = await jobLogTail(project.repo, token, job.id, params.data.tail, fetch);
+      const log = await Promise.all(lines.map(async (line) => (await scrubText(line, key, rules)).slice(0, MAX_LINE)));
+      return { ...job, log };
+    }),
+  );
+  return json({ jobs: withLogs });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -76,9 +115,10 @@ export default {
     const key = env.PSEUDONYM_KEY;
     if (!key) return json({ error: 'Agent Idea is not configured' }, 503);
 
-    const match = /^\/v1\/(access|logs)\/([\w-]+)$/.exec(url.pathname);
+    const match = /^\/v1\/(access|logs|runs)\/([\w-]+)(?:\/(\d+))?$/.exec(url.pathname);
     if (!match || request.method !== 'GET') return json({ error: 'Not found' }, 404);
-    const [, route = '', name = ''] = match;
+    const [, route = '', name = '', runId] = match;
+    if (runId !== undefined && route !== 'runs') return json({ error: 'Not found' }, 404);
 
     const project = PROJECTS[name];
     if (!project) return json({ error: `Unknown project '${name}'` }, 404);
@@ -93,6 +133,8 @@ export default {
     if (access.outcome === 'denied') return json({ error: `You need write access to ${project.repo}` }, 403);
 
     if (route === 'logs') return logs(url, name, project, env, key);
+    if (route === 'runs' && runId !== undefined) return run(url, name, project, token, Number(runId), key);
+    if (route === 'runs') return runs(url, project, token);
     return json({ project: name, repo: project.repo, login: access.login, access: 'write' });
   },
 } satisfies ExportedHandler<Env>;

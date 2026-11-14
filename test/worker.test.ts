@@ -137,3 +137,67 @@ describe('GET /v1/logs/:project', () => {
     expect(response.status).toBe(503);
   });
 });
+
+describe('GET /v1/runs/:project', () => {
+  function stubRuns(push: boolean) {
+    const signed = 'https://pipelines.example.net/logs/10?sig=abc';
+    const routes: Record<string, { status: number; body?: unknown; text?: string; location?: string }> = {
+      '/user': { status: 200, body: { login: 'octocat' } },
+      '/repos/ideaSquared/pairflix': { status: 200, body: { permissions: { push, admin: false }, default_branch: 'master' } },
+      '/repos/ideaSquared/pairflix/actions/runs': {
+        status: 200,
+        body: { workflow_runs: [{ id: 5, run_number: 9, name: 'CI', event: 'push', status: 'completed', conclusion: 'failure', head_branch: 'master', head_sha: '1234567abcdef', created_at: '2026-11-14T20:00:00Z', html_url: 'https://github.com/ideaSquared/pairflix/actions/runs/5' }] },
+      },
+      '/repos/ideaSquared/pairflix/actions/runs/5/jobs': {
+        status: 200,
+        body: { jobs: [{ id: 10, name: 'test', status: 'completed', conclusion: 'failure', started_at: null, completed_at: null, steps: [{ name: 'Test', conclusion: 'failure' }] }] },
+      },
+      '/repos/ideaSquared/pairflix/actions/jobs/10/logs': { status: 302, location: signed },
+      [signed]: { status: 200, text: 'login failed for alex@example.com\ntoken=ghp_abcdefghijklmnopqrstuvwxyz0123\nGET https://api.example.com/api/households/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/pick 500' },
+    };
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+      calls.push(input);
+      const parsed = new URL(input);
+      const route = routes[input] ?? routes[parsed.pathname];
+      if (!route) return new Response('not found', { status: 404 });
+      const headers = route.location ? { location: route.location } : undefined;
+      return new Response(route.text ?? (route.body === undefined ? null : JSON.stringify(route.body)), { status: route.status, headers });
+    });
+    return calls;
+  }
+
+  it('lists recent runs', async () => {
+    stubRuns(true);
+    const response = await worker.fetch(request('/v1/runs/pairflix?limit=5', 't'), env());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      runs: [{ id: 5, number: 9, workflow: 'CI', event: 'push', status: 'completed', conclusion: 'failure', branch: 'master', sha: '1234567', createdAt: '2026-11-14T20:00:00Z', url: 'https://github.com/ideaSquared/pairflix/actions/runs/5' }],
+    });
+  });
+
+  it('returns a run with the sanitised log tail of each failed job', async () => {
+    stubRuns(true);
+    const response = await worker.fetch(request('/v1/runs/pairflix/5', 't'), env());
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { jobs: Array<{ name: string; failedSteps: string[]; log: string[] }> };
+    expect(body.jobs[0]).toMatchObject({ name: 'test', failedSteps: ['Test'] });
+    const log = body.jobs[0]?.log.join('\n') ?? '';
+    expect(log).toContain('login failed for [email]');
+    expect(log).toContain('/api/households/:param/pick');
+    ['alex@example.com', 'ghp_', '3f2b8c1e'].forEach((leak) => expect(log).not.toContain(leak));
+  });
+
+  it('refuses without write access, before asking for runs', async () => {
+    const calls = stubRuns(false);
+    const response = await worker.fetch(request('/v1/runs/pairflix', 't'), env());
+    expect(response.status).toBe(403);
+    expect(calls.some((url) => url.includes('/actions/'))).toBe(false);
+  });
+
+  it('rejects a run id on other routes', async () => {
+    stubRuns(true);
+    const response = await worker.fetch(request('/v1/logs/pairflix/5', 't'), env());
+    expect(response.status).toBe(404);
+  });
+});
