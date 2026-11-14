@@ -1,3 +1,4 @@
+import { createLogger } from '@ideasquared/log';
 import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
 import { PROJECTS, type Project } from './projects.ts';
@@ -27,9 +28,11 @@ function bearer(request: Request): string | undefined {
   return match?.[1];
 }
 
-// Who asked for what, and the outcome. Never the results.
+const log = createLogger({ service: 'agent-idea', fields: ['actor', 'project', 'route', 'outcome'] });
+
+// Who asked for what, and the outcome. Never the results. The staff member's GitHub login is the audit `actor`.
 function audit(entry: { login?: string; project: string; route: string; outcome: string }): void {
-  console.log(JSON.stringify({ audit: true, ...entry }));
+  log.info('access checked', { actor: entry.login ?? null, project: entry.project, route: entry.route, outcome: entry.outcome });
 }
 
 const LogsParamsSchema = z.object({

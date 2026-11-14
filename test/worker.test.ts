@@ -67,10 +67,12 @@ describe('GET /v1/access/:project', () => {
 
   it('records who asked, without the token', async () => {
     stubGitHub(true);
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const log = vi.spyOn(console, 'info').mockImplementation(() => {});
     await worker.fetch(request('/v1/access/pairflix', 'secret-token'), env());
     const lines = log.mock.calls.map((call) => String(call[0]));
-    expect(lines).toEqual([expect.stringContaining('"login":"octocat"')]);
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      expect.objectContaining({ message: 'access checked', meta: { actor: 'octocat', project: 'pairflix', route: 'access', outcome: 'allowed' } }),
+    ]);
     expect(lines.join()).not.toContain('secret-token');
     log.mockRestore();
   });

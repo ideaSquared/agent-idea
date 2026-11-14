@@ -16,7 +16,8 @@
     "typecheck": "tsc && tsc -p packages/log"
   },
   "dependencies": {
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@ideasquared/log": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261107.1",
