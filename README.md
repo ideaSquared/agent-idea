@@ -68,8 +68,9 @@ Every log event goes through [`sanitiseEvent`](src/sanitise.ts) before it leaves
 [`test/sanitise.test.ts`](test/sanitise.test.ts) holds log lines full of personal data and secrets. CI fails if any
 of it survives. Add a line there whenever a new kind of leak is found.
 
-**Limits.** Regexes cannot recognise a name in free text ("player Bob joined"). Products should not log names. The
-sanitiser is the safety net, not the only defence.
+**Limits.** Regexes cannot recognise a name in free text ("player Bob joined"). That is what
+[`@ideasquared/log`](packages/log/README.md) is for: products log a fixed message and declared fields, so names and
+emails are never written in the first place. The sanitiser is the safety net, not the only defence.
 
 ## Log sources
 

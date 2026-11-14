@@ -11,9 +11,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && pnpm -C packages/log build",
     "test": "vitest run",
-    "typecheck": "tsc"
+    "typecheck": "tsc && tsc -p packages/log"
   },
   "dependencies": {
     "zod": "^4.6.5"

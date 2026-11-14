@@ -22,7 +22,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       # dist/ is committed so `pnpm add -g github:ideaSquared/agent-idea` works without a build step.
-      - name: dist/ matches src/cli/
+      # Likewise packages/log/dist/, so products can install @ideasquared/log from GitHub.
+      - name: dist/ matches src/
         run: |
           pnpm build
-          git diff --exit-code -- dist || { echo "::error::dist/ is out of date. Run pnpm build and commit it."; exit 1; }
+          git diff --exit-code -- dist packages/log/dist || { echo "::error::dist/ is out of date. Run pnpm build and commit it."; exit 1; }
