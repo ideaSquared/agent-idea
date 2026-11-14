@@ -103,7 +103,17 @@ describe('GET /v1/logs/:project', () => {
           message: 'pick failed for [email]',
         },
       ],
+      scanned: 1,
     });
+  });
+
+  it('searches only sanitised events, so hidden data cannot be found', async () => {
+    const slugEvent = { ...event, $metadata: { ...event.$metadata, message: 'GET https://x.example/api/creators/paragonjenko' } };
+    stubGitHub(true, [slugEvent, event]);
+    const hidden = await worker.fetch(request('/v1/logs/pairflix?search=paragonjenko', 't'), env());
+    expect(await hidden.json()).toEqual({ events: [], scanned: 2 });
+    const visible = await worker.fetch(request('/v1/logs/pairflix?search=pick%20failed', 't'), env());
+    expect(((await visible.json()) as { events: unknown[] }).events).toHaveLength(1);
   });
 
   it('refuses without write access, before asking Cloudflare', async () => {
@@ -111,18 +121,6 @@ describe('GET /v1/logs/:project', () => {
     const response = await worker.fetch(request('/v1/logs/pairflix', 't'), env());
     expect(response.status).toBe(403);
     expect(calls.some((call) => call.url.includes('cloudflare'))).toBe(false);
-  });
-
-  it('refuses a search for personal data', async () => {
-    stubGitHub(true);
-    const response = await worker.fetch(request('/v1/logs/pairflix?search=alex@example.com', 't'), env());
-    expect(response.status).toBe(400);
-  });
-
-  it('allows an ordinary search', async () => {
-    stubGitHub(true);
-    const response = await worker.fetch(request('/v1/logs/pairflix?search=youtube', 't'), env());
-    expect(response.status).toBe(200);
   });
 
   it('rejects a window longer than Workers Logs keeps', async () => {

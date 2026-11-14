@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
 import { PROJECTS, type Project } from './projects.ts';
-import { sanitiseEvent, scrubText } from './sanitise.ts';
+import { routeRules } from './route-words.ts';
+import { sanitiseEvent, type SanitisedEvent } from './sanitise.ts';
 import { fetchWorkerLogs } from './sources/workers-logs.ts';
 
 export type Env = {
@@ -14,6 +15,8 @@ export type Env = {
 const HOUR = 3_600_000;
 // Workers Logs keeps 7 days.
 const MAX_SINCE_HOURS = 168;
+// How many of the newest events a search looks through. Cloudflare returns a few hundred at most per query.
+const SEARCH_SCAN = 1000;
 
 function json(body: unknown, status = 200): Response {
   return Response.json(body, { status });
@@ -36,25 +39,29 @@ const LogsParamsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
-async function logs(url: URL, project: Project, env: Env, key: string): Promise<Response> {
+// Search runs on sanitised events only, so it can never match data the sanitiser removed.
+function matches(event: SanitisedEvent, search: string): boolean {
+  const needle = search.toLowerCase();
+  return [event.message, event.route, event.service, event.errorType].some((field) => field?.toLowerCase().includes(needle));
+}
+
+async function logs(url: URL, name: string, project: Project, env: Env, key: string): Promise<Response> {
   const params = LogsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return json({ error: 'Bad query', details: params.error.issues.map((issue) => issue.message) }, 400);
   const { since, level, search, limit } = params.data;
-  // A search term with personal data in it would tell the caller whether that person is in the logs.
-  if (search !== undefined && (await scrubText(search, key)) !== search) {
-    return json({ error: 'Search terms cannot contain personal data or secrets' }, 400);
-  }
   if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return json({ error: 'Workers Logs is not configured' }, 503);
 
   const to = Date.now();
   const raw = await fetchWorkerLogs(
-    { workers: project.workers, from: to - since * HOUR, to, level, search, limit },
+    { workers: project.workers, from: to - since * HOUR, to, level, limit: search ? SEARCH_SCAN : limit },
     { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_API_TOKEN },
     fetch,
   );
-  const settled = await Promise.allSettled(raw.map((event) => sanitiseEvent(event, key)));
-  const events = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
-  return json({ events });
+  const rules = routeRules(name);
+  const settled = await Promise.allSettled(raw.map((event) => sanitiseEvent(event, key, rules)));
+  const sanitised = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+  const events = (search ? sanitised.filter((event) => matches(event, search)) : sanitised).slice(0, limit);
+  return json({ events, scanned: sanitised.length });
 }
 
 export default {
@@ -82,7 +89,7 @@ export default {
     if (access.outcome === 'unauthenticated') return json({ error: 'GitHub did not accept that token' }, 401);
     if (access.outcome === 'denied') return json({ error: `You need write access to ${project.repo}` }, 403);
 
-    if (route === 'logs') return logs(url, project, env, key);
+    if (route === 'logs') return logs(url, name, project, env, key);
     return json({ project: name, repo: project.repo, login: access.login, access: 'write' });
   },
 } satisfies ExportedHandler<Env>;

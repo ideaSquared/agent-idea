@@ -29,8 +29,8 @@ idea access ads                               # check you have write access
 ```
 
 - `--since` is in hours, up to 168 (Workers Logs keeps 7 days). `--limit` is up to 200, default 50.
-- A search term that holds personal data or a secret (an email, an IP, a token) is refused, so the logs can't be used
-  to find out whether a person is in them.
+- `--search` matches the **sanitised** events only (message, route, service, error type), among the newest ~1,000 in
+  the window. It never searches raw logs, so it can't reveal whether hidden data (a slug, an email) is in them.
 - It signs in with `GH_TOKEN`, `GITHUB_TOKEN` or your `gh` login, and talks to `AGENT_IDEA_URL`
   (default `https://agent-idea.idea-squared.workers.dev`).
 
@@ -55,12 +55,15 @@ Every log event goes through [`sanitiseEvent`](src/sanitise.ts) before it leaves
    pairs, credentials and query strings in URLs, emails, IPv4 and IPv6, UK phone numbers and postcodes, card numbers,
    and long numbers (Discord ids and the like).
 3. **Tag** ids so one user can be followed without being identified: UUIDs and 32-hex ids become `id_xxxxxxxx`,
-   prefixed ids such as `acct_…` become `acct_xxxxxxxx`, and Steam IDs `steam_xxxxxxxx`. Each is an HMAC under the
+   prefixed ids such as `acct_…` become `acct_xxxxxxxx` (either case), and Steam IDs `steam_xxxxxxxx`. Each is an HMAC under the
    `PSEUDONYM_KEY` secret. Without that secret the Worker serves nothing.
-4. **Routes and URLs.** Routes, URLs and `GET /path`-style text in messages lose their query string, and any path
-   segment that is not in [`src/route-words.ts`](src/route-words.ts), a version or a parameter becomes `:param`, so a
-   slug that is a person's name (`/creators/alex`) never leaves. If a real route shows up as `:param` and you want to
-   see it, add the word there. Stack traces keep only `file:line`, cut to the path after `src/`.
+4. **Routes and URLs.** Routes, URLs and `GET /path`-style text in messages lose their query string. A path segment
+   is kept only if it is a version (`v1`) or one of **that project's** words in
+   [`src/route-words.ts`](src/route-words.ts), and it does not follow a word that takes an id (`creators`, `users`,
+   `pets` and so on). Everything else becomes `:param`, so `/creators/alex` and `/creators/discord` both come out as
+   `/creators/:param`. Parameter syntax in a raw path (`:id`, `{id}`) is not trusted. If a real route shows up as
+   `:param` and you want to see it, add the word there. Stack traces keep only `file:line`, cut to the path after
+   `src/`.
 
 [`test/sanitise.test.ts`](test/sanitise.test.ts) holds log lines full of personal data and secrets. CI fails if any
 of it survives. Add a line there whenever a new kind of leak is found.
@@ -80,7 +83,7 @@ sanitiser is the safety net, not the only defence.
 | --- | --- |
 | `GET /health` | `{ "ok": true }`, no token needed |
 | `GET /v1/access/:project` | `200` with your login if you can write to the project's repo; `401` with no or a bad token, `403` without write access, `404` for an unknown project |
-| `GET /v1/logs/:project` | `{ "events": [...] }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `search`, `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query or a search holding personal data |
+| `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
 
 ## Develop
 

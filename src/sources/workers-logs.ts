@@ -7,13 +7,13 @@ export type LogQuery = {
   from: number;
   to: number;
   level?: 'debug' | 'info' | 'warn' | 'error';
-  search?: string;
   limit: number;
 };
 
 type Filter = { key: string; operation: string; type: 'string'; value: string };
 
-// The body for Cloudflare's Workers Observability telemetry query.
+// The body for Cloudflare's Workers Observability telemetry query. There is deliberately no text search here:
+// searching raw events would reveal whether data the sanitiser removes (a slug, a name) is in the logs.
 export function buildQuery(query: LogQuery): Record<string, unknown> {
   const filters: Filter[] = [
     { key: '$metadata.service', operation: 'in', type: 'string', value: query.workers.join(',') },
@@ -27,7 +27,6 @@ export function buildQuery(query: LogQuery): Record<string, unknown> {
     parameters: {
       filterCombination: 'and',
       filters,
-      ...(query.search ? { needle: { value: query.search, isRegex: false, matchCase: false } } : {}),
     },
   };
 }

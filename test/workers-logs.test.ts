@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { routeRules } from '../src/route-words.ts';
 import { sanitiseEvent } from '../src/sanitise.ts';
 import { buildQuery, fetchWorkerLogs, toRawEvent } from '../src/sources/workers-logs.ts';
 import { fakeGitHub } from './fakes.ts';
@@ -30,10 +31,8 @@ const cloudflareEvent = {
 };
 
 describe('buildQuery', () => {
-  it('filters to the project workers, the level and the search text', () => {
-    expect(
-      buildQuery({ workers: ['a', 'b'], from: 1, to: 2, level: 'error', search: 'youtube', limit: 50 }),
-    ).toEqual({
+  it('filters to the project workers and the level, with no raw text search', () => {
+    expect(buildQuery({ workers: ['a', 'b'], from: 1, to: 2, level: 'error', limit: 50 })).toEqual({
       queryId: 'agent-idea',
       timeframe: { from: 1, to: 2 },
       view: 'events',
@@ -44,7 +43,6 @@ describe('buildQuery', () => {
           { key: '$metadata.service', operation: 'in', type: 'string', value: 'a,b' },
           { key: '$metadata.level', operation: 'eq', type: 'string', value: 'error' },
         ],
-        needle: { value: 'youtube', isRegex: false, matchCase: false },
       },
     });
   });
@@ -69,7 +67,7 @@ describe('toRawEvent', () => {
 
   it('leaves nothing personal once sanitised', async () => {
     const event = toRawEvent(cloudflareEvent);
-    const serialised = JSON.stringify(await sanitiseEvent(event, 'k'));
+    const serialised = JSON.stringify(await sanitiseEvent(event, 'k', routeRules('creatrgrid')));
     ['paragonjenko', 'Des Moines', '50309', '9.234.106.55', 'Mozilla', 'session', 'alex', 'Microsoft'].forEach((leak) =>
       expect(serialised).not.toContain(leak),
     );

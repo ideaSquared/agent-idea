@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { routeRules } from '../src/route-words.ts';
 import { sanitiseEvent, scrubText } from '../src/sanitise.ts';
 
 const KEY = 'test-pseudonym-key';
+const RULES = routeRules('ads');
+const CREATRGRID = routeRules('creatrgrid');
 
 // Each line holds personal data or a secret. None of the listed values may survive scrubbing.
 const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
@@ -30,26 +33,26 @@ const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
 
 describe('scrubText', () => {
   it.each(PII_CORPUS)('removes personal data and secrets: $line', async ({ line, leaks }) => {
-    const scrubbed = await scrubText(line, KEY);
+    const scrubbed = await scrubText(line, KEY, RULES);
     leaks.forEach((leak) => expect(scrubbed).not.toContain(leak));
   });
 
   it('keeps ordinary error text readable', async () => {
-    expect(await scrubText('TypeError: cannot read properties of undefined at 12:30:45', KEY)).toBe(
+    expect(await scrubText('TypeError: cannot read properties of undefined at 12:30:45', KEY, RULES)).toBe(
       'TypeError: cannot read properties of undefined at 12:30:45',
     );
   });
 
   it('keeps the host and known route words of a URL', async () => {
-    expect(await scrubText('GET https://api.creatrgrid.com/api/v1/creators/paragonjenko?x=1', KEY)).toBe(
+    expect(await scrubText('GET https://api.creatrgrid.com/api/v1/creators/paragonjenko?x=1', KEY, CREATRGRID)).toBe(
       'GET https://api.creatrgrid.com/api/v1/creators/:param?[query]',
     );
   });
 
   it('gives the same UUID the same tag, so one user can be followed', async () => {
     const uuid = '3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b';
-    const first = await scrubText(`user ${uuid} logged in`, KEY);
-    const second = await scrubText(`user ${uuid.toUpperCase()} logged out`, KEY);
+    const first = await scrubText(`user ${uuid} logged in`, KEY, RULES);
+    const second = await scrubText(`user ${uuid.toUpperCase()} logged out`, KEY, RULES);
     const tag = /id_[0-9a-f]{8}/.exec(first)?.[0];
     expect(tag).toBeDefined();
     expect(second).toContain(tag);
@@ -57,16 +60,21 @@ describe('scrubText', () => {
 
   it('gives different tags under a different key', async () => {
     const uuid = '3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b';
-    expect(await scrubText(uuid, KEY)).not.toBe(await scrubText(uuid, 'another-key'));
+    expect(await scrubText(uuid, KEY, RULES)).not.toBe(await scrubText(uuid, 'another-key', RULES));
   });
 
   it('tags prefixed and hex ids, keeping the prefix', async () => {
-    const scrubbed = await scrubText('[sync] failed acct_f02ea3fd42cb404c831deb30675c241e and f02ea3fd42cb404c831deb30675c241e', KEY);
+    const scrubbed = await scrubText('[sync] failed acct_f02ea3fd42cb404c831deb30675c241e and f02ea3fd42cb404c831deb30675c241e', KEY, RULES);
     expect(scrubbed).toMatch(/^\[sync\] failed acct_[0-9a-f]{8} and id_[0-9a-f]{8}$/);
   });
 
+  it('tags uppercase hex ids too', async () => {
+    const scrubbed = await scrubText('ABCDEFABCDEFABCDEFABCDEFABCDEFAB acct_ABCDEFABCDEFABCDEFABCDEFABCDEFAB', KEY, RULES);
+    expect(scrubbed).toMatch(/^id_[0-9a-f]{8} acct_[0-9a-f]{8}$/);
+  });
+
   it('tags Steam IDs rather than deleting them', async () => {
-    expect(await scrubText('player 76561198012345678 kicked', KEY)).toMatch(/^player steam_[0-9a-f]{8} kicked$/);
+    expect(await scrubText('player 76561198012345678 kicked', KEY, RULES)).toMatch(/^player steam_[0-9a-f]{8} kicked$/);
   });
 });
 
@@ -93,7 +101,7 @@ describe('sanitiseEvent', () => {
   };
 
   it('returns only allowlisted fields, sanitised', async () => {
-    expect(await sanitiseEvent(raw, KEY)).toEqual({
+    expect(await sanitiseEvent(raw, KEY, RULES)).toEqual({
       timestamp: '2025-11-14T06:00:00.000Z',
       level: 'error',
       service: 'gateway',
@@ -107,39 +115,49 @@ describe('sanitiseEvent', () => {
   });
 
   it('never returns a value from the raw event that is not on the allowlist', async () => {
-    const serialised = JSON.stringify(await sanitiseEvent(raw, KEY));
+    const serialised = JSON.stringify(await sanitiseEvent(raw, KEY, RULES));
     ['alex', 'example.com', '203.0.113.42', 'Mozilla', 'session', 'token=abc', '3f2b8c1e'].forEach((leak) =>
       expect(serialised).not.toContain(leak),
     );
   });
 
-  it('keeps route templates that are already templates', async () => {
-    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/pets/:petId/images/{imageId}' }, KEY);
-    expect(event.route).toBe('/api/v1/pets/:petId/images/{imageId}');
-  });
-
   it('turns path segments that are not known route words into :param, so slugs never leave', async () => {
-    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/creators/paragonjenko' }, KEY);
+    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/creators/paragonjenko' }, KEY, CREATRGRID);
     expect(event.route).toBe('/api/v1/creators/:param');
   });
 
+  it('hides the segment after a word that takes an id, even when it is a known word', async () => {
+    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/creators/discord' }, KEY, CREATRGRID);
+    expect(event.route).toBe('/api/v1/creators/:param');
+  });
+
+  it("does not use another project's route words", async () => {
+    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/entitlements/settings' }, KEY, CREATRGRID);
+    expect(event.route).toBe('/api/v1/:param/settings');
+  });
+
+  it('does not trust parameter syntax in a raw path', async () => {
+    const event = await sanitiseEvent({ timestamp: 0, route: '/api/:alex/images/{alex}' }, KEY, RULES);
+    expect(event.route).toBe('/api/:param/images/:param');
+  });
+
   it('replaces an unrecognised error type with Error', async () => {
-    const event = await sanitiseEvent({ timestamp: 0, errorType: 'alex@example.com' }, KEY);
+    const event = await sanitiseEvent({ timestamp: 0, errorType: 'alex@example.com' }, KEY, RULES);
     expect(event.errorType).toBe('Error');
   });
 
   it('drops a service name that is not a plain slug', async () => {
-    const event = await sanitiseEvent({ timestamp: 0, service: 'Alex Jenkins laptop' }, KEY);
+    const event = await sanitiseEvent({ timestamp: 0, service: 'Alex Jenkins laptop' }, KEY, RULES);
     expect(event.service).toBeUndefined();
   });
 
   it('cuts long messages to 500 characters', async () => {
-    const event = await sanitiseEvent({ timestamp: 0, message: 'x'.repeat(2000) }, KEY);
+    const event = await sanitiseEvent({ timestamp: 0, message: 'x'.repeat(2000) }, KEY, RULES);
     expect(event.message).toHaveLength(500);
   });
 
   it('rejects an event without a valid timestamp', async () => {
-    await expect(sanitiseEvent({ timestamp: 'not a date', message: 'hi' }, KEY)).rejects.toThrow();
-    await expect(sanitiseEvent({ message: 'hi' }, KEY)).rejects.toThrow();
+    await expect(sanitiseEvent({ timestamp: 'not a date', message: 'hi' }, KEY, RULES)).rejects.toThrow();
+    await expect(sanitiseEvent({ message: 'hi' }, KEY, RULES)).rejects.toThrow();
   });
 });
