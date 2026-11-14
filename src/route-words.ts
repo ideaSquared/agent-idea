@@ -1,0 +1,77 @@
+// Path segments that may appear in a sanitised route, per project. Any other segment becomes :param, so
+// a slug that is a person's name (/creators/alex) never leaves. Built from each repo's route definitions;
+// add a word when a real route shows up as :param and you want to see it.
+const SHARED = [
+    'api', 'admin', 'auth', 'health', 'ready', 'metrics', 'docs', 'webhook', 'callback', 'public', 'login',
+    'logout', 'register', 'refresh', 'refresh-token', 'csrf-token', 'me', 'users', 'user', 'settings',
+    'preferences', 'status', 'stats', 'search', 'export', 'bulk', 'batch', 'config',
+];
+
+const PROJECT_WORDS: Readonly<Record<string, readonly string[]>> = {
+  ads: [
+    'accept', 'acknowledge', 'action', 'actions', 'active', 'activity', 'adopt', 'adoption-metrics',
+    'adoption-policies', 'announcements', 'answers', 'appeal', 'application', 'application-analytics',
+    'application-defaults', 'application-preferences', 'applications', 'assign', 'assign-role', 'audit',
+    'auth-token', 'backup-codes', 'breeds', 'broadcast', 'bulk-update', 'change-password', 'chats', 'cleanup',
+    'cms', 'colleagues', 'complete', 'completion', 'confirm-email-change', 'consent', 'conversations',
+    'cookies', 'cookies-consent', 'count', 'csv', 'dashboard', 'deactivate', 'defaults', 'delete-request',
+    'details', 'devices', 'discovery', 'dnd', 'documents', 'drafts', 'email-change', 'email-report', 'enable',
+    'end', 'enquiries', 'erasure-request', 'escalate', 'events', 'execute', 'facets', 'favorite', 'favorites',
+    'featured', 'field-permissions', 'followed', 'foster', 'home-visit', 'home-visits', 'images', 'inbox',
+    'invitation-token', 'invitations', 'ip-rules', 'legal', 'lock', 'login-history', 'mark-read', 'matching',
+    'menus', 'messages', 'moderation', 'moderator', 'my-tickets', 'notes', 'notifications', 'pageviews', 'pdf',
+    'pending-reacceptance', 'permissions', 'pet', 'pet-performance', 'pets', 'placements', 'privacy',
+    'process', 'profile', 'provider-info', 'publish', 'questions', 'queue', 'quick-application', 'reactions',
+    'reactivate', 'read-all', 'redeem-invitation', 'references', 'regenerate', 'reject', 'reorder', 'reply',
+    'report', 'rescue', 'rescues', 'reset', 'responses', 'restore', 'role', 'rule', 'sanctions', 'schedule',
+    'schedules', 'security', 'send-email', 'session', 'setup', 'share', 'shared', 'shares', 'similar',
+    'stage-distribution', 'stale', 'statistics', 'submit', 'suggestions', 'support', 'suspicious-activity',
+    'swipe', 'swipes', 'targets', 'templates', 'terms', 'tickets', 'timeline', 'top-picks', 'unread',
+    'unread-count', 'uploads', 'uploads-signed', 'user-invitation-token', 'versions', 'view', 'widgets',
+    'with-permissions', 'withdraw',
+  ],
+  creatrgrid: [
+    'accounts', 'analytics', 'approve', 'approve-domain', 'attention', 'audit-log', 'audit-logs', 'avatar',
+    'avatars', 'billing', 'bootstrap-admin', 'by-domain', 'cancel', 'check', 'checkout', 'clear',
+    'clear-review', 'confirm', 'connect', 'content', 'creator', 'creators', 'dashboard-stats', 'deck', 'demo',
+    'disable', 'dismiss', 'domain', 'email', 'enroll', 'flag', 'force-password-reset', 'force-reverify',
+    'forgot-password', 'invites', 'latest-token', 'locked-accounts', 'options', 'password', 'plan',
+    'platforms', 'portal', 'promote-admin', 'read', 'remove', 'reports', 'resend', 'resend-verification',
+    'reset-2fa', 'reset-password', 'resync', 'send-password-reset', 'sessions', 'set', 'social',
+    'social-accounts', 'sources', 'suspend', 'thumbnails', 'unlock', 'unsuspend', 'username', 'verify',
+    'verify-email', 'site', 'sites',
+  ],
+  gaminginit: [
+    'account', 'coins', 'go', 'discord', 'steam', 'player', 'players', 'live', 'socket', 'lifetime', 'review',
+    'season', 'shame', 'vote', 'rotation', 'matches', 'match', 'leaderboard',
+  ],
+  'gaminginit-bot': [
+    'account', 'coins', 'go', 'discord', 'steam', 'player', 'players', 'live', 'socket', 'lifetime', 'review',
+    'season', 'shame', 'vote', 'rotation', 'matches', 'match', 'leaderboard',
+  ],
+  'ideasquared-bot': [
+    'ads', 'pairflix', 'creatrgrid', 'gaminginit', 'ideasquared', 'ship',
+  ],
+  pairflix: [
+    'entitlements', 'households', 'pick', 'pick-events', 'taste-onboarding', 'history', 'providers',
+  ],
+};
+
+// The segment after one of these is an id or a slug, so it is always :param, even when it happens to be a
+// known word (/creators/settings, /users/me).
+const DYNAMIC_AFTER = [
+    'accounts', 'applications', 'application', 'chats', 'conversations', 'creator', 'creators', 'devices',
+    'documents', 'households', 'images', 'invitations', 'invites', 'match', 'matches', 'messages',
+    'notifications', 'pet', 'pets', 'player', 'players', 'reports', 'rescue', 'rescues', 'sessions', 'site',
+    'sites', 'social-accounts', 'templates', 'tickets', 'uploads', 'user', 'users',
+];
+
+export type RouteRules = { words: ReadonlySet<string>; dynamicAfter: ReadonlySet<string> };
+
+// The rules for one project. An unknown project gets only the shared words.
+export function routeRules(project: string): RouteRules {
+  return {
+    words: new Set([...SHARED, ...(PROJECT_WORDS[project] ?? [])]),
+    dynamicAfter: new Set(DYNAMIC_AFTER),
+  };
+}

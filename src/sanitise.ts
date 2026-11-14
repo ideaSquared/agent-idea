@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { RouteRules } from './route-words.ts';
 
 // A log event as a source adapter hands it over. Only these fields are read: anything else on the
 // object (bodies, headers, cookies, IPs, user agents, query strings) is dropped by the schema.
@@ -50,6 +51,30 @@ async function replaceAsync(text: string, pattern: RegExp, replace: (match: stri
   return text.replace(pattern, () => replacements[index++] ?? '');
 }
 
+const VERSION = /^v\d{1,2}$/;
+
+// The route as a template: no host or query string. A segment is kept only if it is a version (v1) or one
+// of the project's route words and does not follow a word that takes an id; everything else becomes :param.
+// Parameter syntax (:id, {id}) in the input is not trusted, because sources hand over raw paths.
+export function templateRoute(route: string, rules: RouteRules): string {
+  const path = route.replace(/^\w+:\/\/[^/]+/, '').split(/[?#]/)[0] ?? '';
+  const segments = path.split('/').filter(Boolean);
+  const templated = segments.map((segment, index) => {
+    const previous = segments[index - 1]?.toLowerCase();
+    if (previous !== undefined && rules.dynamicAfter.has(previous)) return ':param';
+    return VERSION.test(segment) || rules.words.has(segment.toLowerCase()) ? segment : ':param';
+  });
+  return `/${templated.join('/')}`;
+}
+
+// URLs keep their scheme and host; the path is templated and any query string is replaced.
+function templateUrl(url: string, rules: RouteRules): string {
+  const match = /^(\w+:\/\/[^\s/?#"']+)([^\s?#"']*)([?#][^\s"']*)?$/.exec(url);
+  if (!match) return '[url]';
+  const [, origin = '', path = '', query] = match;
+  return `${origin}${path ? templateRoute(path, rules) : ''}${query ? '?[query]' : ''}`;
+}
+
 // Fixed replacements, applied in order. Secrets first, so a token is never half-matched as something else.
 const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[jwt]'],
@@ -58,7 +83,6 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bAKIA[0-9A-Z]{16}\b/g, '[key]'],
   [/\b(api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd|cookie|session)(["']?\s*[=:]\s*)["']?[^\s"',;&]+/gi, '$1$2[redacted]'],
   [/(\w+:\/\/)[^\s/@:]+:[^\s/@]+@/g, '$1[creds]@'],
-  [/(\w+:\/\/[^\s?#]+)[?#][^\s"']*/g, '$1?[query]'],
   [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[email]'],
 ];
 
@@ -71,31 +95,25 @@ const LATE_REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b\d{6,}\b/g, '[number]'],
 ];
 
-// Free text with secrets and personal data removed. UUIDs and Steam IDs become stable tags, so one
+// Free text with secrets and personal data removed. UUIDs, hex ids and Steam IDs become stable tags, so one
 // user can be followed through the logs without being identified.
-export async function scrubText(text: string, key: string): Promise<string> {
-  const redacted = REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
+export async function scrubText(text: string, key: string, rules: RouteRules): Promise<string> {
+  const redacted = REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text)
+    .replace(/\b\w+:\/\/[^\s"'<>]+/g, (url) => templateUrl(url, rules))
+    .replace(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s"'<>]*)/g, (_, method: string, path: string) => `${method} ${templateRoute(path, rules)}`);
   const withIds = await replaceAsync(
     redacted,
     /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
     (uuid) => tag('id', uuid, key),
   );
-  const withSteam = await replaceAsync(withIds, /\b7656119\d{10}\b/g, (steamId) => tag('steam', steamId, key));
+  // Prefixed ids such as acct_f02ea3fd… keep their prefix; bare 32-hex ids become id_….
+  const withPrefixed = await replaceAsync(withIds, /\b[a-z]{2,10}_[0-9a-f]{16,}\b/gi, (id) => {
+    const [prefix = 'id'] = id.split('_');
+    return tag(prefix.toLowerCase(), id, key);
+  });
+  const withHex = await replaceAsync(withPrefixed, /\b[0-9a-f]{32}\b/gi, (id) => tag('id', id, key));
+  const withSteam = await replaceAsync(withHex, /\b7656119\d{10}\b/g, (steamId) => tag('steam', steamId, key));
   return LATE_REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), withSteam);
-}
-
-const ROUTE_WORD = /^[a-z]+(?:[-_][a-z]+)*$/;
-const ROUTE_PARAM = /^(?::\w+|\{\w+\}|\*|v\d{1,2})$/;
-
-// The route as a template: no query string, and every segment that is not a plain word, a version (v1) or an
-// existing parameter (ids, numbers, emails, anything mixed) becomes :param.
-function templateRoute(route: string): string {
-  const path = route.replace(/^\w+:\/\/[^/]+/, '').split(/[?#]/)[0] ?? '';
-  const segments = path
-    .split('/')
-    .filter(Boolean)
-    .map((segment) => (ROUTE_PARAM.test(segment) || (ROUTE_WORD.test(segment) && segment.length <= 24) ? segment : ':param'));
-  return `/${segments.join('/')}`;
 }
 
 function shortPath(file: string): string {
@@ -124,17 +142,17 @@ function level(value: string | undefined): SanitisedEvent['level'] {
 
 // The only shape that leaves the Worker. Throws on input with no usable timestamp, so a malformed
 // event is dropped rather than passed through.
-export async function sanitiseEvent(raw: unknown, key: string): Promise<SanitisedEvent> {
+export async function sanitiseEvent(raw: unknown, key: string, rules: RouteRules): Promise<SanitisedEvent> {
   const event = RawEventSchema.parse(raw);
   const timestamp = new Date(event.timestamp);
   if (Number.isNaN(timestamp.getTime())) throw new Error('event has no valid timestamp');
-  const message = (await scrubText(event.message ?? '', key)).slice(0, MAX_MESSAGE);
+  const message = (await scrubText(event.message ?? '', key, rules)).slice(0, MAX_MESSAGE);
   return {
     timestamp: timestamp.toISOString(),
     level: level(event.level),
     message,
     ...(event.service && /^[a-z0-9-]{1,40}$/.test(event.service) ? { service: event.service } : {}),
-    ...(event.route ? { route: templateRoute(event.route) } : {}),
+    ...(event.route ? { route: templateRoute(event.route, rules) } : {}),
     ...(event.status !== undefined && event.status >= 100 && event.status <= 599 ? { status: event.status } : {}),
     ...(event.durationMs !== undefined ? { durationMs: Math.round(event.durationMs) } : {}),
     ...(event.errorType ? { errorType: /^[A-Z][A-Za-z]{0,40}$/.test(event.errorType) ? event.errorType : 'Error' } : {}),

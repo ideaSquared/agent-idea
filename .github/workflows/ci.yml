@@ -21,3 +21,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+      # dist/ is committed so `pnpm add -g github:ideaSquared/agent-idea` works without a build step.
+      # Likewise packages/log/dist/, so products can install @ideasquared/log from GitHub.
+      - name: dist/ matches src/
+        run: |
+          pnpm build
+          git diff --exit-code -- dist packages/log/dist || { echo "::error::dist/ is out of date. Run pnpm build and commit it."; exit 1; }
+      # Server code logs through @ideasquared/log, never console (see .claude/skills/logging). The CLI prints to a
+      # terminal, so src/cli is exempt; a justified exception carries `// logging-exempt: <reason>` on the line.
+      - name: No console calls in server code
+        run: |
+          if grep -rnE '\bconsole\.(log|info|warn|error|debug|trace)\(' src --include='*.ts' --exclude-dir=cli | grep -v 'logging-exempt:'; then
+            echo "::error::Log through @ideasquared/log instead of console. See .claude/skills/logging/SKILL.md."
+            exit 1
+          fi
