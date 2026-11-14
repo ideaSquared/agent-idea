@@ -5,8 +5,12 @@ Structured logging for every ideaSquared product, modelled on Monzo's
 [Agent Idea](../../README.md)'s sanitiser is the safety net, not the only defence.
 
 ```bash
-pnpm add "github:ideaSquared/agent-idea#path:/packages/log"
+pnpm add "git+https://github.com/ideaSquared/agent-idea.git#<commit>&path:/packages/log"
 ```
+
+Use the `git+https://` form, not `github:`. With `github:`, pnpm can record an SSH clone in the lockfile, which CI
+cannot fetch. Pin a commit so every install gets the same code; the lockfile should show a `codeload.github.com`
+tarball.
 
 ```ts
 import { createLogger } from '@ideasquared/log';
