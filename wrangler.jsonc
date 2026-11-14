@@ -1,0 +1,9 @@
+{
+  "name": "agent-idea",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  // Caches GitHub access checks for 5 minutes, keyed by a hash of the token. The token is never stored.
+  "kv_namespaces": [{ "binding": "ACCESS_CACHE" }],
+  // Secret (wrangler secret put): PSEUDONYM_KEY, the HMAC key that turns ids into stable, irreversible tags.
+  "observability": { "enabled": true }
+}
