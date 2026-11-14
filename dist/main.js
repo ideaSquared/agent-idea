@@ -1,12 +1,14 @@
 import { parseArgs } from 'node:util';
+import { call, PROJECT_NAMES } from "./client.js";
 export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
 
   idea logs <project> [--since <hours>] [--level debug|info|warn|error] [--search <text>] [--limit <n>] [--json]
   idea runs <project> [--failed] [--limit <n>] [--json]       recent GitHub Actions runs
   idea run <project> <run id> [--tail <lines>] [--json]      a run's jobs, with each failed job's log
   idea access <project>
+  idea mcp                                                    MCP server over stdio, for Claude Code
 
-Projects: ads, creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix.
+Projects: ${PROJECT_NAMES.join(', ')}.
 You need write access to the project's repo. Sign-in: GH_TOKEN, GITHUB_TOKEN or your gh login.
 API: AGENT_IDEA_URL (default https://agent-idea.idea-squared.workers.dev).`;
 // One line per event: time, level, service, the request, then the message.
@@ -34,17 +36,6 @@ export function formatJob(job) {
     const result = job.status === 'completed' ? (job.conclusion ?? 'done') : job.status;
     const head = `${MARK[result] ?? '…'} ${job.name}${job.failedSteps.length > 0 ? `  (failed: ${job.failedSteps.join(', ')})` : ''}`;
     return job.log ? `${head}\n${job.log.map((line) => `    ${line}`).join('\n')}` : head;
-}
-async function call(deps, path) {
-    if (!deps.token)
-        throw new Error('Not signed in. Run `gh auth login` or set GH_TOKEN.');
-    const response = await deps.fetch(`${deps.apiUrl}${path}`, { headers: { authorization: `Bearer ${deps.token}` } });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-        const error = typeof body === 'object' && body !== null && 'error' in body ? String(body.error) : '';
-        throw new Error(error || `Agent Idea answered ${response.status}`);
-    }
-    return body;
 }
 export async function run(argv, deps) {
     const { positionals, values } = parseArgs({

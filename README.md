@@ -36,6 +36,43 @@ idea access ads                               # check you have write access
 - It signs in with `GH_TOKEN`, `GITHUB_TOKEN` or your `gh` login, and talks to `AGENT_IDEA_URL`
   (default `https://agent-idea.idea-squared.workers.dev`).
 
+## MCP server (phase 6)
+
+`idea mcp` runs a local [MCP](https://modelcontextprotocol.io) server over stdio, so Claude Code (or any MCP client)
+can read sanitised logs as tools, signed in as you. It talks only to the Agent Idea API, never to a log source, so
+the write-access check and the sanitiser still run on the server and Claude only ever sees sanitised data.
+
+Register it with Claude Code once, for all your projects:
+
+```bash
+claude mcp add --scope user idea -- idea mcp
+```
+
+Or add it to a repo's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "idea": { "command": "idea", "args": ["mcp"] }
+  }
+}
+```
+
+| Tool | API route | Input |
+| --- | --- | --- |
+| `list_projects` | none | |
+| `check_access` | `GET /v1/access/:project` | `project` |
+| `get_logs` | `GET /v1/logs/:project` | `project`, `since_hours` (max 168), `level`, `search`, `limit` (max 200) |
+| `list_runs` | `GET /v1/runs/:project` | `project`, `failed`, `limit` (max 50) |
+| `get_run` | `GET /v1/runs/:project/:runId` | `project`, `run_id`, `tail` (max 300) |
+
+- Each tool returns the API's JSON. A refusal (`401` no or bad token, `403` no write access) or a network failure comes
+  back as a tool error with a plain message.
+- It reads your token once, at start-up (`GH_TOKEN`, `GITHUB_TOKEN` or `gh auth token`). If you sign in later, restart
+  the server (`/mcp` in Claude Code). `AGENT_IDEA_URL` works as for the CLI.
+- stdout is the protocol channel. Diagnostics go to stderr and never include the token.
+- To add a tool for a new API route, add an entry to `TOOLS` in [`src/cli/mcp.ts`](src/cli/mcp.ts).
+
 ## Access
 
 - Every request carries a GitHub token: `Authorization: Bearer <token>`. The CLI will read it from `gh auth token`.
