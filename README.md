@@ -101,7 +101,7 @@ pnpm dev          # wrangler dev; put PSEUDONYM_KEY and CF_API_TOKEN in .dev.var
 ```bash
 openssl rand -hex 32 | pnpm wrangler secret put PSEUDONYM_KEY
 pnpm wrangler secret put CF_API_TOKEN     # Cloudflare API token: Account > Workers Observability > Read, nothing else
-pnpm deploy
+pnpm run deploy   # not `pnpm deploy`, which is pnpm's own workspace command
 ```
 
 Wrangler creates the `ACCESS_CACHE` KV namespace on the first deploy. Keep `PSEUDONYM_KEY` stable: changing it changes

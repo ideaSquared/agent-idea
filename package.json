@@ -16,11 +16,11 @@
     "typecheck": "tsc && tsc -p packages/log"
   },
   "dependencies": {
-    "zod": "^4.6.5",
-    "@ideasquared/log": "workspace:*"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261107.1",
+    "@ideasquared/log": "workspace:*",
     "@types/node": "^22.20.4",
     "typescript": "~5.9.3",
     "vitest": "^5.0.2",
