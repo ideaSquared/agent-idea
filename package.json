@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc"
   },
@@ -25,6 +26,15 @@
     "wrangler": "^4.158.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "workerd"]
-  }
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
+  },
+  "bin": {
+    "idea": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ]
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ROUTE_WORDS } from './route-words.ts';
 
 // A log event as a source adapter hands it over. Only these fields are read: anything else on the
 // object (bodies, headers, cookies, IPs, user agents, query strings) is dropped by the schema.
@@ -50,6 +51,27 @@ async function replaceAsync(text: string, pattern: RegExp, replace: (match: stri
   return text.replace(pattern, () => replacements[index++] ?? '');
 }
 
+const ROUTE_PARAM = /^(?::\w+|\{\w+\}|\*|v\d{1,2})$/;
+
+// The route as a template: no host or query string, and every segment that is not a known route
+// word (src/route-words.ts), a version (v1) or an existing parameter becomes :param.
+export function templateRoute(route: string): string {
+  const path = route.replace(/^\w+:\/\/[^/]+/, '').split(/[?#]/)[0] ?? '';
+  const segments = path
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => (ROUTE_PARAM.test(segment) || ROUTE_WORDS.has(segment.toLowerCase()) ? segment : ':param'));
+  return `/${segments.join('/')}`;
+}
+
+// URLs keep their scheme and host; the path is templated and any query string is replaced.
+function templateUrl(url: string): string {
+  const match = /^(\w+:\/\/[^\s/?#"']+)([^\s?#"']*)([?#][^\s"']*)?$/.exec(url);
+  if (!match) return '[url]';
+  const [, origin = '', path = '', query] = match;
+  return `${origin}${path ? templateRoute(path) : ''}${query ? '?[query]' : ''}`;
+}
+
 // Fixed replacements, applied in order. Secrets first, so a token is never half-matched as something else.
 const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[jwt]'],
@@ -58,7 +80,6 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bAKIA[0-9A-Z]{16}\b/g, '[key]'],
   [/\b(api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd|cookie|session)(["']?\s*[=:]\s*)["']?[^\s"',;&]+/gi, '$1$2[redacted]'],
   [/(\w+:\/\/)[^\s/@:]+:[^\s/@]+@/g, '$1[creds]@'],
-  [/(\w+:\/\/[^\s?#]+)[?#][^\s"']*/g, '$1?[query]'],
   [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[email]'],
 ];
 
@@ -71,31 +92,25 @@ const LATE_REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b\d{6,}\b/g, '[number]'],
 ];
 
-// Free text with secrets and personal data removed. UUIDs and Steam IDs become stable tags, so one
+// Free text with secrets and personal data removed. UUIDs, hex ids and Steam IDs become stable tags, so one
 // user can be followed through the logs without being identified.
 export async function scrubText(text: string, key: string): Promise<string> {
-  const redacted = REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
+  const redacted = REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text)
+    .replace(/\b\w+:\/\/[^\s"'<>]+/g, templateUrl)
+    .replace(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s"'<>]*)/g, (_, method: string, path: string) => `${method} ${templateRoute(path)}`);
   const withIds = await replaceAsync(
     redacted,
     /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
     (uuid) => tag('id', uuid, key),
   );
-  const withSteam = await replaceAsync(withIds, /\b7656119\d{10}\b/g, (steamId) => tag('steam', steamId, key));
+  // Prefixed ids such as acct_f02ea3fd… keep their prefix; bare 32-hex ids become id_….
+  const withPrefixed = await replaceAsync(withIds, /\b[a-z]{2,10}_[0-9a-f]{16,}\b/g, (id) => {
+    const [prefix = 'id'] = id.split('_');
+    return tag(prefix, id, key);
+  });
+  const withHex = await replaceAsync(withPrefixed, /\b[0-9a-f]{32}\b/g, (id) => tag('id', id, key));
+  const withSteam = await replaceAsync(withHex, /\b7656119\d{10}\b/g, (steamId) => tag('steam', steamId, key));
   return LATE_REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), withSteam);
-}
-
-const ROUTE_WORD = /^[a-z]+(?:[-_][a-z]+)*$/;
-const ROUTE_PARAM = /^(?::\w+|\{\w+\}|\*|v\d{1,2})$/;
-
-// The route as a template: no query string, and every segment that is not a plain word, a version (v1) or an
-// existing parameter (ids, numbers, emails, anything mixed) becomes :param.
-function templateRoute(route: string): string {
-  const path = route.replace(/^\w+:\/\/[^/]+/, '').split(/[?#]/)[0] ?? '';
-  const segments = path
-    .split('/')
-    .filter(Boolean)
-    .map((segment) => (ROUTE_PARAM.test(segment) || (ROUTE_WORD.test(segment) && segment.length <= 24) ? segment : ':param'));
-  return `/${segments.join('/')}`;
 }
 
 function shortPath(file: string): string {

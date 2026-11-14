@@ -23,6 +23,9 @@ const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
   { line: 'user 3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b not found', leaks: ['3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b'] },
   { line: 'session=abc123def456 expired', leaks: ['abc123def456'] },
   { line: 'AWS key AKIAIOSFODNN7EXAMPLE in env', leaks: ['AKIAIOSFODNN7EXAMPLE'] },
+  { line: 'GET https://api.creatrgrid.com/api/v1/creators/paragonjenko', leaks: ['paragonjenko'] },
+  { line: 'GET /api/v1/creators/alex-jenkins 404', leaks: ['alex-jenkins'] },
+  { line: 'redirect to https://gaminginit.com/player/alexj#stats', leaks: ['alexj', 'stats'] },
 ];
 
 describe('scrubText', () => {
@@ -34,6 +37,12 @@ describe('scrubText', () => {
   it('keeps ordinary error text readable', async () => {
     expect(await scrubText('TypeError: cannot read properties of undefined at 12:30:45', KEY)).toBe(
       'TypeError: cannot read properties of undefined at 12:30:45',
+    );
+  });
+
+  it('keeps the host and known route words of a URL', async () => {
+    expect(await scrubText('GET https://api.creatrgrid.com/api/v1/creators/paragonjenko?x=1', KEY)).toBe(
+      'GET https://api.creatrgrid.com/api/v1/creators/:param?[query]',
     );
   });
 
@@ -49,6 +58,11 @@ describe('scrubText', () => {
   it('gives different tags under a different key', async () => {
     const uuid = '3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b';
     expect(await scrubText(uuid, KEY)).not.toBe(await scrubText(uuid, 'another-key'));
+  });
+
+  it('tags prefixed and hex ids, keeping the prefix', async () => {
+    const scrubbed = await scrubText('[sync] failed acct_f02ea3fd42cb404c831deb30675c241e and f02ea3fd42cb404c831deb30675c241e', KEY);
+    expect(scrubbed).toMatch(/^\[sync\] failed acct_[0-9a-f]{8} and id_[0-9a-f]{8}$/);
   });
 
   it('tags Steam IDs rather than deleting them', async () => {
@@ -100,8 +114,13 @@ describe('sanitiseEvent', () => {
   });
 
   it('keeps route templates that are already templates', async () => {
-    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/pets/:petId/photos/{photoId}' }, KEY);
-    expect(event.route).toBe('/api/v1/pets/:petId/photos/{photoId}');
+    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/pets/:petId/images/{imageId}' }, KEY);
+    expect(event.route).toBe('/api/v1/pets/:petId/images/{imageId}');
+  });
+
+  it('turns path segments that are not known route words into :param, so slugs never leave', async () => {
+    const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/creators/paragonjenko' }, KEY);
+    expect(event.route).toBe('/api/v1/creators/:param');
   });
 
   it('replaces an unrecognised error type with Error', async () => {

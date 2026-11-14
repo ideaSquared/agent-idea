@@ -4,6 +4,9 @@
   "compatibility_date": "2026-11-01",
   // Caches GitHub access checks for 5 minutes, keyed by a hash of the token. The token is never stored.
   "kv_namespaces": [{ "binding": "ACCESS_CACHE" }],
-  // Secret (wrangler secret put): PSEUDONYM_KEY, the HMAC key that turns ids into stable, irreversible tags.
+  "vars": { "CF_ACCOUNT_ID": "3f6731f1c1d43d5d6274d16218e08d56" },
+  // Secrets (wrangler secret put):
+  //   PSEUDONYM_KEY  the HMAC key that turns ids into stable, irreversible tags
+  //   CF_API_TOKEN   a Cloudflare API token with Workers Observability read only
   "observability": { "enabled": true }
 }
