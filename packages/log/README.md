@@ -11,8 +11,8 @@ pnpm add https://github.com/ideaSquared/agent-idea/releases/download/log-v0.1.0/
 Each release is a tarball on a GitHub Release, and the lockfile pins it with an integrity hash. Don't install from a
 git URL or `github:` spec: those can record an SSH clone CI cannot fetch, and `turbo prune` drops the subfolder path.
 
-To release a new version: bump `version` in `packages/log/package.json`, run `pnpm build`, merge, then push a tag
-`log-v<version>`. The `Release @ideasquared/log` workflow tests, packs and publishes it.
+To release a new version: bump `version` in `packages/log/package.json`, run `pnpm build`, and merge. On `main`, the
+`Release @ideasquared/log` workflow tests, packs and publishes `log-v<version>` if that release doesn't exist yet.
 
 ```ts
 import { createLogger } from '@ideasquared/log';

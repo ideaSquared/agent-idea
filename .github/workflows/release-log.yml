@@ -1,10 +1,13 @@
 name: Release @ideasquared/log
 
-# Push a tag like log-v0.1.0 to publish packages/log as a tarball on a GitHub Release. Products install it from
-# that URL, so no package registry and no git subfolder (which `turbo prune` mishandles) are involved.
+# Publishes packages/log as a tarball on a GitHub Release tagged log-v<version>, whenever main has a version that
+# has no release yet. Products install it from that URL, so no package registry and no git subfolder (which
+# `turbo prune` mishandles) are involved. To release: bump packages/log/package.json's version and merge.
 on:
   push:
-    tags: ['log-v*']
+    branches: [main]
+    paths: ['packages/log/**']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,19 +24,26 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-      - name: Version matches the tag
+      - name: Release tag for this version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(node -p "require('./packages/log/package.json').version")
-          [ "log-v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match packages/log version $version"; exit 1; }
+          tag="log-v$(node -p "require('./packages/log/package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
       - name: Pack
+        if: steps.version.outputs.exists == 'false'
         run: |
           pnpm -C packages/log build
           git diff --exit-code -- packages/log/dist || { echo "::error::packages/log/dist is out of date"; exit 1; }
           pnpm -C packages/log pack --pack-destination "$RUNNER_TEMP"
       - name: Publish the release
+        if: steps.version.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/ideasquared-log-*.tgz \
-            --title "@ideasquared/log ${GITHUB_REF_NAME#log-v}" \
-            --notes "Install: pnpm add https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/$(basename "$RUNNER_TEMP"/ideasquared-log-*.tgz)"
+          gh release create "$TAG" "$RUNNER_TEMP"/ideasquared-log-*.tgz --target "$GITHUB_SHA" \
+            --title "@ideasquared/log ${TAG#log-v}" \
+            --notes "Install: pnpm add https://github.com/${{ github.repository }}/releases/download/$TAG/$(basename "$RUNNER_TEMP"/ideasquared-log-*.tgz)"
