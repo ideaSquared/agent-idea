@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { jobLogTail, listRuns, runJobs } from '../src/sources/github-actions.ts';
+import { jobLogTail, listRuns, runJobs, tailOf } from '../src/sources/github-actions.ts';
 
 type Route = { status?: number; body?: unknown; text?: string; location?: string };
 
@@ -103,5 +103,40 @@ describe('jobLogTail', () => {
   it('strips timestamps and colour codes', async () => {
     const { fetcher } = fake({ [`/repos/${REPO}/actions/jobs/10/logs`]: { text: log } });
     expect(await jobLogTail(REPO, 'tok', 10, 10, fetcher)).toEqual(['pnpm test', 'one', 'two']);
+  });
+});
+
+describe('runJobs paging', () => {
+  it('follows pages until every job is collected', async () => {
+    const job = (id: number) => ({ id, name: `j${id}`, status: 'completed', conclusion: 'success', started_at: null, completed_at: null });
+    const first = Array.from({ length: 100 }, (_, i) => job(i));
+    const { fetcher, calls } = fake({
+      [`/repos/${REPO}/actions/runs/1/jobs?per_page=100&page=1`]: { body: { total_count: 101, jobs: first } },
+      [`/repos/${REPO}/actions/runs/1/jobs?per_page=100&page=2`]: { body: { total_count: 101, jobs: [job(100)] } },
+    });
+    const jobs = await runJobs(REPO, 'tok', 1, fetcher);
+    expect(jobs).toHaveLength(101);
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe('tailOf', () => {
+  const streamOf = (chunks: string[]): ReadableStream<Uint8Array> =>
+    new ReadableStream({
+      start(controller) {
+        chunks.forEach((chunk) => controller.enqueue(new TextEncoder().encode(chunk)));
+        controller.close();
+      },
+    });
+
+  it('keeps only the last lines of a long log, across chunk boundaries', async () => {
+    const lines = Array.from({ length: 10_000 }, (_, i) => `line ${i}`).join('\n');
+    const chunks = lines.match(/[\s\S]{1,777}/g) ?? [];
+    expect(await tailOf(streamOf(chunks), 3)).toEqual(['line 9997', 'line 9998', 'line 9999']);
+  });
+
+  it('cuts a huge line instead of holding it', async () => {
+    const [line] = await tailOf(streamOf(['x'.repeat(50_000), '\n']), 1);
+    expect(line).toHaveLength(4000);
   });
 });

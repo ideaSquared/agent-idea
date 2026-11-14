@@ -139,20 +139,26 @@ describe('GET /v1/logs/:project', () => {
 });
 
 describe('GET /v1/runs/:project', () => {
-  function stubRuns(push: boolean) {
+  function stubRuns(
+    push: boolean,
+    { workflowName = 'CI', jobName = 'test', stepName = 'Test', extraJobs = [] as unknown[] } = {},
+  ) {
     const signed = 'https://pipelines.example.net/logs/10?sig=abc';
     const routes: Record<string, { status: number; body?: unknown; text?: string; location?: string }> = {
       '/user': { status: 200, body: { login: 'octocat' } },
       '/repos/ideaSquared/pairflix': { status: 200, body: { permissions: { push, admin: false }, default_branch: 'master' } },
       '/repos/ideaSquared/pairflix/actions/runs': {
         status: 200,
-        body: { workflow_runs: [{ id: 5, run_number: 9, name: 'CI', event: 'push', status: 'completed', conclusion: 'failure', head_branch: 'master', head_sha: '1234567abcdef', created_at: '2026-11-14T20:00:00Z', html_url: 'https://github.com/ideaSquared/pairflix/actions/runs/5' }] },
+        body: { workflow_runs: [{ id: 5, run_number: 9, name: workflowName, event: 'push', status: 'completed', conclusion: 'failure', head_branch: 'master', head_sha: '1234567abcdef', created_at: '2026-11-14T20:00:00Z', html_url: 'https://github.com/ideaSquared/pairflix/actions/runs/5' }] },
       },
       '/repos/ideaSquared/pairflix/actions/runs/5/jobs': {
         status: 200,
-        body: { jobs: [{ id: 10, name: 'test', status: 'completed', conclusion: 'failure', started_at: null, completed_at: null, steps: [{ name: 'Test', conclusion: 'failure' }] }] },
+        body: { jobs: [{ id: 10, name: jobName, status: 'completed', conclusion: 'failure', started_at: null, completed_at: null, steps: [{ name: stepName, conclusion: 'failure' }] }, ...extraJobs] },
       },
       '/repos/ideaSquared/pairflix/actions/jobs/10/logs': { status: 302, location: signed },
+      ...Object.fromEntries(
+        Array.from({ length: 20 }, (_, i) => [`/repos/ideaSquared/pairflix/actions/jobs/${100 + i}/logs`, { status: 200, text: `job ${100 + i} failed` }]),
+      ),
       [signed]: { status: 200, text: 'login failed for alex@example.com\ntoken=ghp_abcdefghijklmnopqrstuvwxyz0123\nGET https://api.example.com/api/households/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/pick 500' },
     };
     const calls: string[] = [];
@@ -193,6 +199,25 @@ describe('GET /v1/runs/:project', () => {
     const response = await worker.fetch(request('/v1/runs/pairflix', 't'), env());
     expect(response.status).toBe(403);
     expect(calls.some((url) => url.includes('/actions/'))).toBe(false);
+  });
+
+  it('scrubs workflow, job and step names', async () => {
+    stubRuns(true, { workflowName: 'CI for alex@example.com', jobName: 'deploy to 203.0.113.42', stepName: 'notify bob@example.com' });
+    const runsBody = JSON.stringify(await (await worker.fetch(request('/v1/runs/pairflix', 't'), env())).json());
+    const runBody = JSON.stringify(await (await worker.fetch(request('/v1/runs/pairflix/5', 't'), env())).json());
+    ['alex@example.com', '203.0.113.42', 'bob@example.com'].forEach((leak) => {
+      expect(runsBody).not.toContain(leak);
+      expect(runBody).not.toContain(leak);
+    });
+    expect(runsBody).toContain('CI for [email]');
+  });
+
+  it('fetches logs for at most ten failed jobs and marks the rest', async () => {
+    const extraJobs = Array.from({ length: 12 }, (_, i) => ({ id: 100 + i, name: `shard ${i}`, status: 'completed', conclusion: 'failure', started_at: null, completed_at: null }));
+    stubRuns(true, { extraJobs });
+    const body = (await (await worker.fetch(request('/v1/runs/pairflix/5', 't'), env())).json()) as { jobs: Array<{ log?: string[]; logOmitted?: boolean }> };
+    expect(body.jobs.filter((job) => job.log)).toHaveLength(10);
+    expect(body.jobs.filter((job) => job.logOmitted)).toHaveLength(3);
   });
 
   it('rejects a run id on other routes', async () => {

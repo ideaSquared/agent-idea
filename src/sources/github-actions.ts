@@ -45,6 +45,7 @@ const RunsSchema = z.object({
   ),
 });
 const JobsSchema = z.object({
+  total_count: z.number().default(0),
   jobs: z.array(
     z.object({
       id: z.number(),
@@ -102,9 +103,19 @@ export async function listRuns(
   }));
 }
 
+// GitHub pages jobs 100 at a time; a big matrix run can have more. Stop at a sane ceiling.
+const JOB_PAGE = 100;
+const MAX_JOB_PAGES = 10;
+
+async function allJobs(repo: string, token: string, runId: number, fetcher: Fetch, page = 1): Promise<z.infer<typeof JobsSchema>['jobs']> {
+  const body = await getJson(token, fetcher, `/repos/${repo}/actions/runs/${runId}/jobs?per_page=${JOB_PAGE}&page=${page}`);
+  const { jobs, total_count: total } = JobsSchema.parse(body);
+  if (jobs.length < JOB_PAGE || page * JOB_PAGE >= total || page >= MAX_JOB_PAGES) return jobs;
+  return [...jobs, ...(await allJobs(repo, token, runId, fetcher, page + 1))];
+}
+
 export async function runJobs(repo: string, token: string, runId: number, fetcher: Fetch): Promise<JobSummary[]> {
-  const body = await getJson(token, fetcher, `/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`);
-  return JobsSchema.parse(body).jobs.map((job) => ({
+  return (await allJobs(repo, token, runId, fetcher)).map((job) => ({
     id: job.id,
     name: job.name,
     status: job.status,
@@ -119,6 +130,36 @@ const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 // ANSI colour codes, which CI logs are full of.
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 
+// A line longer than this is cut before anything else is done with it, so one huge line can't use up memory.
+const MAX_RAW_LINE = 4000;
+
+function clean(line: string): string {
+  return line.replace(TIMESTAMP, '').replace(ANSI, '');
+}
+
+// Reads a text stream and keeps only its last `lines` non-empty lines, so memory stays bounded however long the
+// log is. A line that goes past MAX_RAW_LINE is cut there.
+export async function tailOf(stream: ReadableStream<Uint8Array>, lines: number): Promise<string[]> {
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+  const kept: string[] = [];
+  let partial = '';
+  const keep = (line: string): void => {
+    const cleaned = clean(line.slice(0, MAX_RAW_LINE)).replace(/\r$/, '');
+    if (cleaned.trim() === '') return;
+    kept.push(cleaned);
+    if (kept.length > lines) kept.shift();
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const parts = (partial + value).split('\n');
+    partial = (parts.pop() ?? '').slice(0, MAX_RAW_LINE);
+    parts.forEach(keep);
+  }
+  keep(partial);
+  return kept;
+}
+
 // The last `lines` lines of a job's log, without timestamps or colour codes. Not yet sanitised.
 export async function jobLogTail(repo: string, token: string, jobId: number, lines: number, fetcher: Fetch): Promise<string[]> {
   // GitHub answers with a redirect to a signed download URL, which must be fetched without our token.
@@ -126,10 +167,6 @@ export async function jobLogTail(repo: string, token: string, jobId: number, lin
   const location = response.headers.get('location');
   const logResponse = response.status >= 300 && response.status < 400 && location ? await fetcher(location) : response;
   if (!logResponse.ok) throw new Error(`GitHub job log answered ${logResponse.status}`);
-  const text = await logResponse.text();
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.replace(TIMESTAMP, '').replace(ANSI, ''))
-    .filter((line) => line.trim() !== '')
-    .slice(-lines);
+  if (!logResponse.body) return [];
+  return tailOf(logResponse.body, lines);
 }

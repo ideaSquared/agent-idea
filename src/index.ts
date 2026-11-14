@@ -83,10 +83,24 @@ function badQuery(error: z.ZodError): Response {
   return json({ error: 'Bad query', details: error.issues.map((issue) => issue.message) }, 400);
 }
 
-async function runs(url: URL, project: Project, token: string): Promise<Response> {
+// Workflow, job and step names come from workflow files and can hold expression results, so they are scrubbed too.
+async function runs(url: URL, name: string, project: Project, token: string, key: string): Promise<Response> {
   const params = RunsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return badQuery(params.error);
-  return json({ runs: await listRuns(project.repo, token, params.data, fetch) });
+  const rules = routeRules(name);
+  const list = await listRuns(project.repo, token, params.data, fetch);
+  const scrubbed = await Promise.all(list.map(async (item) => ({ ...item, workflow: await scrubText(item.workflow, key, rules) })));
+  return json({ runs: scrubbed });
+}
+
+// Failed jobs' logs are fetched a few at a time, and only for the first few failed jobs, to bound memory and time.
+const LOG_BATCH = 3;
+const MAX_LOGGED_JOBS = 10;
+
+async function inBatches<T, R>(items: readonly T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const done = await Promise.all(items.slice(0, size).map(work));
+  return [...done, ...(await inBatches(items.slice(size), size, work))];
 }
 
 // One run's jobs, with the sanitised tail of each failed job's log.
@@ -94,16 +108,25 @@ async function run(url: URL, name: string, project: Project, token: string, runI
   const params = RunParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return badQuery(params.error);
   const rules = routeRules(name);
+  const scrub = async (text: string): Promise<string> => (await scrubText(text, key, rules)).slice(0, MAX_LINE);
   const jobs = await runJobs(project.repo, token, runId, fetch);
-  const withLogs = await Promise.all(
-    jobs.map(async (job) => {
-      if (job.conclusion !== 'failure') return job;
-      const lines = await jobLogTail(project.repo, token, job.id, params.data.tail, fetch);
-      const log = await Promise.all(lines.map(async (line) => (await scrubText(line, key, rules)).slice(0, MAX_LINE)));
-      return { ...job, log };
+  const named = await Promise.all(
+    jobs.map(async (job) => ({ ...job, name: await scrub(job.name), failedSteps: await Promise.all(job.failedSteps.map(scrub)) })),
+  );
+  const failedIds = new Set(named.filter((job) => job.conclusion === 'failure').slice(0, MAX_LOGGED_JOBS).map((job) => job.id));
+  const logs = new Map(
+    await inBatches([...failedIds], LOG_BATCH, async (id) => {
+      const lines = await jobLogTail(project.repo, token, id, params.data.tail, fetch);
+      return [id, await Promise.all(lines.map(scrub))] as const;
     }),
   );
-  return json({ jobs: withLogs });
+  return json({
+    jobs: named.map((job) => {
+      const log = logs.get(job.id);
+      if (log) return { ...job, log };
+      return job.conclusion === 'failure' ? { ...job, logOmitted: true } : job;
+    }),
+  });
 }
 
 export default {
@@ -134,7 +157,7 @@ export default {
 
     if (route === 'logs') return logs(url, name, project, env, key);
     if (route === 'runs' && runId !== undefined) return run(url, name, project, token, Number(runId), key);
-    if (route === 'runs') return runs(url, project, token);
+    if (route === 'runs') return runs(url, name, project, token, key);
     return json({ project: name, repo: project.repo, login: access.login, access: 'write' });
   },
 } satisfies ExportedHandler<Env>;
