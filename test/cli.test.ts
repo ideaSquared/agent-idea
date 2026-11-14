@@ -83,3 +83,37 @@ it('prints usage with no command', async () => {
   await run([], value);
   expect(lines[0]).toContain('idea logs <project>');
 });
+
+describe('idea runs', () => {
+  const sampleRun = { id: 5, number: 9, workflow: 'CI', event: 'push', status: 'completed', conclusion: 'failure', branch: 'main', sha: '1234567', createdAt: '2026-11-14T20:00:00Z' };
+
+  it('prints one line per run with the id to look at', async () => {
+    const { value, lines } = deps({ '/v1/runs/pairflix': { status: 200, body: { runs: [sampleRun] } } });
+    await run(['runs', 'pairflix'], value);
+    expect(lines).toEqual(['✗  CI #9  push  main  1234567  2026-11-14 20:00Z  id 5']);
+  });
+
+  it('passes --failed and --limit', async () => {
+    const { value, urls } = deps({ '/v1/runs/pairflix': { status: 200, body: { runs: [] } } });
+    await run(['runs', 'pairflix', '--failed', '--limit', '3'], value);
+    expect(new URL(urls[0] ?? '').searchParams.toString()).toBe('limit=3&failed=true');
+  });
+});
+
+describe('idea run', () => {
+  it("prints each job, and a failed job's log underneath", async () => {
+    const { value, lines } = deps({
+      '/v1/runs/pairflix/5': {
+        status: 200,
+        body: { jobs: [{ name: 'test', status: 'completed', conclusion: 'failure', failedSteps: ['Test'], log: ['boom'] }, { name: 'deploy', status: 'completed', conclusion: 'skipped', failedSteps: [] }] },
+      },
+    });
+    await run(['run', 'pairflix', '5'], value);
+    expect(lines).toEqual(['✗ test  (failed: Test)\n    boom', '- deploy']);
+  });
+
+  it('asks for the run id', async () => {
+    const { value } = deps({});
+    await expect(run(['run', 'pairflix'], value)).rejects.toThrow('Which run?');
+  });
+});

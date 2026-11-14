@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
 import { PROJECTS, type Project } from './projects.ts';
 import { routeRules } from './route-words.ts';
-import { sanitiseEvent, type SanitisedEvent } from './sanitise.ts';
+import { sanitiseEvent, scrubText, type SanitisedEvent } from './sanitise.ts';
+import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
 import { fetchWorkerLogs } from './sources/workers-logs.ts';
 
 export type Env = {
@@ -67,6 +68,67 @@ async function logs(url: URL, name: string, project: Project, env: Env, key: str
   return json({ events, scanned: sanitised.length });
 }
 
+const RunsParamsSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+  failed: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+});
+
+const RunParamsSchema = z.object({
+  tail: z.coerce.number().int().min(1).max(300).default(80),
+});
+
+const MAX_LINE = 500;
+
+function badQuery(error: z.ZodError): Response {
+  return json({ error: 'Bad query', details: error.issues.map((issue) => issue.message) }, 400);
+}
+
+// Workflow, job and step names come from workflow files and can hold expression results, so they are scrubbed too.
+async function runs(url: URL, name: string, project: Project, token: string, key: string): Promise<Response> {
+  const params = RunsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
+  if (!params.success) return badQuery(params.error);
+  const rules = routeRules(name);
+  const list = await listRuns(project.repo, token, params.data, fetch);
+  const scrubbed = await Promise.all(list.map(async (item) => ({ ...item, workflow: await scrubText(item.workflow, key, rules) })));
+  return json({ runs: scrubbed });
+}
+
+// Failed jobs' logs are fetched a few at a time, and only for the first few failed jobs, to bound memory and time.
+const LOG_BATCH = 3;
+const MAX_LOGGED_JOBS = 10;
+
+async function inBatches<T, R>(items: readonly T[], size: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const done = await Promise.all(items.slice(0, size).map(work));
+  return [...done, ...(await inBatches(items.slice(size), size, work))];
+}
+
+// One run's jobs, with the sanitised tail of each failed job's log.
+async function run(url: URL, name: string, project: Project, token: string, runId: number, key: string): Promise<Response> {
+  const params = RunParamsSchema.safeParse(Object.fromEntries(url.searchParams));
+  if (!params.success) return badQuery(params.error);
+  const rules = routeRules(name);
+  const scrub = async (text: string): Promise<string> => (await scrubText(text, key, rules)).slice(0, MAX_LINE);
+  const jobs = await runJobs(project.repo, token, runId, fetch);
+  const named = await Promise.all(
+    jobs.map(async (job) => ({ ...job, name: await scrub(job.name), failedSteps: await Promise.all(job.failedSteps.map(scrub)) })),
+  );
+  const failedIds = new Set(named.filter((job) => job.conclusion === 'failure').slice(0, MAX_LOGGED_JOBS).map((job) => job.id));
+  const logs = new Map(
+    await inBatches([...failedIds], LOG_BATCH, async (id) => {
+      const lines = await jobLogTail(project.repo, token, id, params.data.tail, fetch);
+      return [id, await Promise.all(lines.map(scrub))] as const;
+    }),
+  );
+  return json({
+    jobs: named.map((job) => {
+      const log = logs.get(job.id);
+      if (log) return { ...job, log };
+      return job.conclusion === 'failure' ? { ...job, logOmitted: true } : job;
+    }),
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -76,9 +138,10 @@ export default {
     const key = env.PSEUDONYM_KEY;
     if (!key) return json({ error: 'Agent Idea is not configured' }, 503);
 
-    const match = /^\/v1\/(access|logs)\/([\w-]+)$/.exec(url.pathname);
+    const match = /^\/v1\/(access|logs|runs)\/([\w-]+)(?:\/(\d+))?$/.exec(url.pathname);
     if (!match || request.method !== 'GET') return json({ error: 'Not found' }, 404);
-    const [, route = '', name = ''] = match;
+    const [, route = '', name = '', runId] = match;
+    if (runId !== undefined && route !== 'runs') return json({ error: 'Not found' }, 404);
 
     const project = PROJECTS[name];
     if (!project) return json({ error: `Unknown project '${name}'` }, 404);
@@ -93,6 +156,8 @@ export default {
     if (access.outcome === 'denied') return json({ error: `You need write access to ${project.repo}` }, 403);
 
     if (route === 'logs') return logs(url, name, project, env, key);
+    if (route === 'runs' && runId !== undefined) return run(url, name, project, token, Number(runId), key);
+    if (route === 'runs') return runs(url, name, project, token, key);
     return json({ project: name, repo: project.repo, login: access.login, access: 'write' });
   },
 } satisfies ExportedHandler<Env>;

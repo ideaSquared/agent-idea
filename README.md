@@ -11,7 +11,7 @@ idea CLI ──(your gh token)──▶ Agent Idea API (Cloudflare Worker)
                                  4. return only sanitised data
 ```
 
-Status: phase 2 of 6. Cloudflare Workers Logs and the `idea` CLI are in. Next: GitHub Actions logs, then
+Status: phase 3 of 6. Cloudflare Workers Logs, GitHub Actions runs and the `idea` CLI are in. Next:
 adopt-dont-shop's Loki and GlitchTip (staging).
 
 ## The idea command
@@ -25,6 +25,8 @@ idea logs creatrgrid                          # the last hour, oldest first
 idea logs creatrgrid --level error --since 24 # errors in the last 24 hours
 idea logs pairflix --search youtube           # events mentioning youtube
 idea logs gaminginit-bot --json               # JSON, for piping into other tools or an LLM
+idea runs pairflix --failed                   # recent failed GitHub Actions runs, with their ids
+idea run pairflix 43639019850                 # that run's jobs, and the sanitised log of each failed job
 idea access ads                               # check you have write access
 ```
 
@@ -77,6 +79,7 @@ emails are never written in the first place. The sanitiser is the safety net, no
 | Source | Projects | How |
 | --- | --- | --- |
 | Cloudflare Workers Logs | creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix | Workers Observability telemetry query API, filtered to the project's Worker scripts. Only the timestamp, level, service, path, status, wall time and message are read; Cloudflare's client IP, location, headers and TLS details are never touched. |
+| GitHub Actions | all | GitHub's API, called with **your own** token (the one that passed the write-access check), so no extra secret. Runs list the workflow, event, result, short commit and time; the branch only when it is the default branch, and never the commit message, PR title or who triggered it. A run's failed jobs come with the last lines of their log (80 by default, `--tail` up to 300), each line sanitised like any log message. |
 
 ## API
 
@@ -85,6 +88,8 @@ emails are never written in the first place. The sanitiser is the safety net, no
 | `GET /health` | `{ "ok": true }`, no token needed |
 | `GET /v1/access/:project` | `200` with your login if you can write to the project's repo; `401` with no or a bad token, `403` without write access, `404` for an unknown project |
 | `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
+| `GET /v1/runs/:project` | `{ "runs": [...] }`, newest first. Query: `limit` (default 10, max 50), `failed=true` |
+| `GET /v1/runs/:project/:runId` | `{ "jobs": [...] }`: each job's result and failed steps, plus a sanitised `log` tail for failed jobs. Query: `tail` (default 80, max 300) |
 
 ## Develop
 
