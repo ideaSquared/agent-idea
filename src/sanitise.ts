@@ -81,8 +81,10 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b(bearer|basic)\s+[\w.~+/=-]+/gi, '$1 [token]'],
   [/\b(sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|xox[abposr]-|whsec_|rk_live_|pk_live_)[\w-]{8,}/g, '[key]'],
   [/\bAKIA[0-9A-Z]{16}\b/g, '[key]'],
-  [/\b(api[_-]?key|access[_-]?token|token|secret|password|passwd|pwd|cookie|session)(["']?\s*[=:]\s*)["']?[^\s"',;&]+/gi, '$1$2[redacted]'],
-  [/(\w+:\/\/)[^\s/@:]+:[^\s/@]+@/g, '$1[creds]@'],
+  // Any key ending in one of these words, so refresh_token=, csrfToken: and "refreshToken":"…" are caught too.
+  [/\b([\w-]*?(?:api[_-]?key|token|secret|password|passwd|pwd|cookie|session))(["']?\s*[=:]\s*)["']?[^\s"',;&]+/gi, '$1$2[redacted]'],
+  // Any userinfo in a URL: user:pass@, :pass@ (Redis) and a bare key@ (a Sentry or GlitchTip DSN).
+  [/(\w+:\/\/)[^\s/?#@]+@/g, '$1[creds]@'],
   [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[email]'],
 ];
 

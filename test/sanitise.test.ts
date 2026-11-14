@@ -29,6 +29,19 @@ const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
   { line: 'GET https://api.creatrgrid.com/api/v1/creators/paragonjenko', leaks: ['paragonjenko'] },
   { line: 'GET /api/v1/creators/alex-jenkins 404', leaks: ['alex-jenkins'] },
   { line: 'redirect to https://gaminginit.com/player/alexj#stats', leaks: ['alexj', 'stats'] },
+  // adopt-dont-shop: Loki lines and GlitchTip issue titles and culprits.
+  { line: 'TypeError: no pet for alex.jenkins@example.org', leaks: ['alex.jenkins', 'example.org'] },
+  { line: 'duplicate key value violates unique constraint "users_email_key" Key (email)=(sam.o@example.org) already exists', leaks: ['sam.o', 'example.org'] },
+  { line: 'pets.handler in /api/v1/rescues/9b1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e/pets', leaks: ['9b1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e'] },
+  { line: 'connect ECONNREFUSED 10.0.4.17:5432', leaks: ['10.0.4.17'] },
+  { line: 'X-Forwarded-For: 198.51.100.7, 10.0.0.1', leaks: ['198.51.100.7', '10.0.0.1'] },
+  { line: 'refresh_token=abc.def.ghi rejected', leaks: ['abc.def.ghi'] },
+  { line: 'invalid {"refreshToken":"zz9plural"}', leaks: ['zz9plural'] },
+  { line: 'csrf_token=Zq81kPlmA mismatch', leaks: ['Zq81kPlmA'] },
+  { line: 'redis://:s3cretpw@redis:6379 AUTH failed', leaks: ['s3cretpw'] },
+  { line: 'sentry dsn http://3c2a1b9f8e7d6c5b@glitchtip-web:8080/1', leaks: ['3c2a1b9f8e7d6c5b'] },
+  { line: 'Set-Cookie: sid=s%3Aabcdef; Path=/', leaks: ['s%3Aabcdef'] },
+  { line: 'reset link https://ads.example/reset-password?token=abcd1234 sent', leaks: ['abcd1234'] },
 ];
 
 describe('scrubText', () => {
