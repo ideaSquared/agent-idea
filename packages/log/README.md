@@ -5,7 +5,7 @@ Structured logging for every ideaSquared product, modelled on Monzo's
 [Agent Idea](../../README.md)'s sanitiser is the safety net, not the only defence.
 
 ```bash
-pnpm add https://github.com/ideaSquared/agent-idea/releases/download/log-v0.1.0/ideasquared-log-0.1.0.tgz
+pnpm add https://github.com/ideaSquared/agent-idea/releases/download/log-v0.1.1/ideasquared-log-0.1.1.tgz
 ```
 
 Each release is a tarball on a GitHub Release, and the lockfile pins it with an integrity hash. Don't install from a
@@ -41,7 +41,7 @@ Each event is one JSON line on the console, which Cloudflare Workers Logs and Lo
 | --- | --- |
 | The message is a fixed string from the code | Only a string literal compiles. `` log.info(`sent to ${email}`) `` and `log.info(someString)` are type errors. |
 | Data goes in declared fields | `fields` lists every key the logger may write. An undeclared key is a type error, and is dropped at run time (counted in `dropped`) if untyped code sneaks one in. |
-| No personal data or secrets as fields | Declaring a field such as `email`, `phone`, `name`, `displayName`, `address`, `postcode`, `ip`, `password`, `token`, `session…` or `steamId` throws. Log an id (`userId`, `accountId`) instead: Agent Idea turns ids into anonymous tags. |
+| No personal data or secrets as fields | Declaring a field such as `email`, `phone`, `name`, `displayName`, `address`, `postcode`, `ip`, `password`, `token`, `session…` or `steamId` throws. Log an id (`userId`, `accountId`) instead: Agent Idea turns ids into anonymous tags. `hostname`, `filename` and `pathname` are allowed. |
 | No objects dumped | Field values must be a string, number, boolean or null. Strings are cut to 200 characters. |
 | Context once, on every line | `log.with({ requestId })` returns a logger that adds those fields to every event, like slog's `WithParams`. Fields passed to a call override them. |
 

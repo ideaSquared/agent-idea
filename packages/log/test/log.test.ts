@@ -54,6 +54,11 @@ describe('createLogger', () => {
     );
   });
 
+  it('allows the short list of harmless names the rule would otherwise catch', () => {
+    expect(() => createLogger({ service: 's', fields: ['hostname', 'filename', 'pathname'] })).not.toThrow();
+    expect(() => createLogger({ service: 's', fields: ['playerName'] })).toThrow('playerName');
+  });
+
   it('allows ids and ordinary fields', () => {
     expect(() => createLogger({ service: 's', fields: ['userId', 'accountId', 'platform', 'status', 'count'] })).not.toThrow();
   });
