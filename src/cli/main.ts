@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { call, PROJECT_NAMES, type ApiDeps } from './client.ts';
 
 export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
 
@@ -7,8 +8,9 @@ export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
   idea run <project> <run id> [--tail <lines>] [--json]      a run's jobs, with each failed job's log
   idea errors <project> [--limit <n>] [--frames] [--json]    top unresolved errors (ads only), --frames adds file:line
   idea access <project>
+  idea mcp                                                    MCP server over stdio, for Claude Code
 
-Projects: ads, creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix.
+Projects: ${PROJECT_NAMES.join(', ')}.
 You need write access to the project's repo. Sign-in: GH_TOKEN, GITHUB_TOKEN or your gh login.
 API: AGENT_IDEA_URL (default https://agent-idea.idea-squared.workers.dev).`;
 
@@ -49,10 +51,7 @@ type Issue = {
 
 type Job = { name: string; status: string; conclusion: string | null; failedSteps: string[]; log?: string[] };
 
-export type Deps = {
-  apiUrl: string;
-  token: string | undefined;
-  fetch: (input: string, init?: RequestInit) => Promise<Response>;
+export type Deps = ApiDeps & {
   out: (line: string) => void;
 };
 
@@ -95,17 +94,6 @@ export function formatIssue(issue: Issue): string {
   const culprit = issue.culprit ? `  (${issue.culprit})` : '';
   const head = [issue.shortId, issue.level.toUpperCase(), `${issue.count}x`, `last ${shortTime(issue.lastSeen)}`, `first ${shortTime(issue.firstSeen)}`, `${issue.title}${culprit}`].join('  ');
   return `${head}${(issue.frames ?? []).map((frame) => `\n    at ${frame}`).join('')}`;
-}
-
-async function call(deps: Deps, path: string): Promise<unknown> {
-  if (!deps.token) throw new Error('Not signed in. Run `gh auth login` or set GH_TOKEN.');
-  const response = await deps.fetch(`${deps.apiUrl}${path}`, { headers: { authorization: `Bearer ${deps.token}` } });
-  const body: unknown = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const error = typeof body === 'object' && body !== null && 'error' in body ? String(body.error) : '';
-    throw new Error(error || `Agent Idea answered ${response.status}`);
-  }
-  return body;
 }
 
 export async function run(argv: readonly string[], deps: Deps): Promise<void> {

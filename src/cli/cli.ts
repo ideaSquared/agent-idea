@@ -1,21 +1,20 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
+import { apiFromEnv } from './client.ts';
 import { run } from './main.ts';
+import { serveStdio } from './mcp.ts';
 
-function ghToken(): string | undefined {
-  try {
-    return execFileSync('gh', ['auth', 'token'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-run(process.argv.slice(2), {
-  apiUrl: (process.env.AGENT_IDEA_URL ?? 'https://agent-idea.idea-squared.workers.dev').replace(/\/$/, ''),
-  token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ghToken(),
-  fetch,
-  out: (line) => console.log(line),
-}).catch((error: unknown) => {
+function fail(error: unknown): void {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-});
+}
+
+const argv = process.argv.slice(2);
+const api = apiFromEnv();
+
+if (argv[0] === 'mcp') {
+  // stdout carries the MCP protocol, so diagnostics go to stderr only.
+  if (!api.token) console.error('idea mcp: not signed in, so every tool will fail. Run `gh auth login` or set GH_TOKEN, then restart.');
+  serveStdio(api).catch(fail);
+} else {
+  run(argv, { ...api, out: (line) => console.log(line) }).catch(fail);
+}
