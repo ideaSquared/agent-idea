@@ -87,6 +87,16 @@ export const TOOLS = [
         },
         run: (args, api) => call(api, `${path('runs', args.project)}/${args.run_id}${query({ tail: args.tail })}`),
     }),
+    tool({
+        name: 'get_errors',
+        description: `Lists the busiest unresolved errors from the project's error tracker (GlitchTip; only ads has one). Returns { issues }: each with shortId, level, count, firstSeen, lastSeen, a scrubbed title and culprit, and with frames=true the latest event's stack frames as file:line. Projects without an error tracker return an error. ${ACCESS_NOTE}`,
+        input: {
+            project,
+            limit: z.number().int().min(1).max(25).optional().describe('Issues to return. Default 10, max 25.'),
+            frames: z.boolean().optional().describe("Add each issue's latest stack frames (file:line)."),
+        },
+        run: (args, api) => call(api, `${path('errors', args.project)}${query({ limit: args.limit, frames: args.frames })}`),
+    }),
 ];
 export const VERSION = '0.1.0';
 export function createServer(api, tools = TOOLS) {

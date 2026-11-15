@@ -2,9 +2,11 @@ import { createLogger } from '@ideasquared/log';
 import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
 import { PROJECTS, type Project } from './projects.ts';
-import { routeRules } from './route-words.ts';
-import { sanitiseEvent, scrubText, type SanitisedEvent } from './sanitise.ts';
+import { routeRules, type RouteRules } from './route-words.ts';
+import { sanitiseEvent, scrubText, templateRoute, type SanitisedEvent } from './sanitise.ts';
 import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
+import { latestFrames, listIssues, MAX_TEXT, type GlitchTipConfig } from './sources/glitchtip.ts';
+import { fetchLokiLogs, type LokiConfig } from './sources/loki.ts';
 import { fetchWorkerLogs } from './sources/workers-logs.ts';
 
 export type Env = {
@@ -12,6 +14,14 @@ export type Env = {
   PSEUDONYM_KEY?: string;
   CF_ACCOUNT_ID?: string;
   CF_API_TOKEN?: string;
+  // adopt-dont-shop's Loki and GlitchTip, behind a Cloudflare Tunnel and Access. See docs/ads-tunnel.md.
+  ADS_LOKI_URL?: string;
+  ADS_GLITCHTIP_URL?: string;
+  ADS_GLITCHTIP_ORG?: string;
+  ADS_GLITCHTIP_PROJECT?: string;
+  ADS_GLITCHTIP_TOKEN?: string;
+  ADS_ACCESS_CLIENT_ID?: string;
+  ADS_ACCESS_CLIENT_SECRET?: string;
 };
 
 const HOUR = 3_600_000;
@@ -49,23 +59,94 @@ function matches(event: SanitisedEvent, search: string): boolean {
   return [event.message, event.route, event.service, event.errorType].some((field) => field?.toLowerCase().includes(needle));
 }
 
+// Unconfigured is a valid state: an empty var or a missing secret means "not set up yet", not an error.
+function lokiConfig(env: Env): LokiConfig | undefined {
+  const { ADS_LOKI_URL: url, ADS_ACCESS_CLIENT_ID: accessClientId, ADS_ACCESS_CLIENT_SECRET: accessClientSecret } = env;
+  return url && accessClientId && accessClientSecret ? { url, accessClientId, accessClientSecret } : undefined;
+}
+
+function glitchTipConfig(env: Env): GlitchTipConfig | undefined {
+  const { ADS_GLITCHTIP_URL: url, ADS_GLITCHTIP_ORG: org, ADS_GLITCHTIP_PROJECT: project, ADS_GLITCHTIP_TOKEN: token } = env;
+  const { ADS_ACCESS_CLIENT_ID: accessClientId, ADS_ACCESS_CLIENT_SECRET: accessClientSecret } = env;
+  return url && org && project && token && accessClientId && accessClientSecret
+    ? { url, org, project, token, accessClientId, accessClientSecret }
+    : undefined;
+}
+
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+// Raw events from the project's log source, or the response to send when the source can't be read.
+async function rawLogs(project: Project, env: Env, query: { from: number; to: number; level?: LogLevel; limit: number }): Promise<Array<Record<string, unknown>> | Response> {
+  if (project.logs === 'loki') {
+    const loki = lokiConfig(env);
+    if (!loki) return json({ error: 'ADS logs are not configured' }, 501);
+    // A fixed message: an upstream error can quote the body it choked on.
+    return fetchLokiLogs(query, loki, fetch).catch(() => json({ error: 'Loki could not be read' }, 502));
+  }
+  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return json({ error: 'Workers Logs is not configured' }, 503);
+  return fetchWorkerLogs({ ...query, workers: project.workers }, { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_API_TOKEN }, fetch);
+}
+
 async function logs(url: URL, name: string, project: Project, env: Env, key: string): Promise<Response> {
   const params = LogsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return json({ error: 'Bad query', details: params.error.issues.map((issue) => issue.message) }, 400);
   const { since, level, search, limit } = params.data;
-  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return json({ error: 'Workers Logs is not configured' }, 503);
 
   const to = Date.now();
-  const raw = await fetchWorkerLogs(
-    { workers: project.workers, from: to - since * HOUR, to, level, limit: search ? SEARCH_SCAN : limit },
-    { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_API_TOKEN },
-    fetch,
-  );
+  const raw = await rawLogs(project, env, { from: to - since * HOUR, to, level, limit: search ? SEARCH_SCAN : limit });
+  if (raw instanceof Response) return raw;
   const rules = routeRules(name);
   const settled = await Promise.allSettled(raw.map((event) => sanitiseEvent(event, key, rules)));
   const sanitised = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
   const events = (search ? sanitised.filter((event) => matches(event, search)) : sanitised).slice(0, limit);
   return json({ events, scanned: sanitised.length });
+}
+
+const ErrorsParamsSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(25).default(10),
+  frames: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+});
+
+// An issue title is usually `Type: message`, and the message is free text that can name a person, so only the
+// exception type is returned. Anything that does not start with an identifier becomes `Error`.
+function issueType(title: string): string {
+  return /^([A-Za-z_$][\w$.]{0,99})(?::|$)/.exec(title.trim())?.[1] ?? 'Error';
+}
+
+// A culprit is a route (`/api/v1/users/alex`), a `METHOD /route`, or a function (`handler in src/file.ts`). Routes are
+// templated, functions are scrubbed, and anything else is dropped rather than guessed at.
+async function safeCulprit(culprit: string, key: string, rules: RouteRules): Promise<string> {
+  const text = culprit.trim();
+  const route = /^(?:([A-Z]+)\s+)?(\/\S*)$/.exec(text);
+  if (route) return `${route[1] ? `${route[1]} ` : ''}${templateRoute(route[2] ?? '/', rules)}`;
+  if (/^[\w$.<>]+(?: in [\w./@<>-]+)?$/.test(text)) return scrubText(text, key, rules);
+  return '';
+}
+
+// Top unresolved issues from the project's error tracker. Titles and culprits are scrubbed like log messages;
+// with frames=true each issue carries its latest event's stack frames, file:line only.
+async function errors(url: URL, name: string, project: Project, env: Env, key: string): Promise<Response> {
+  const params = ErrorsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
+  if (!params.success) return badQuery(params.error);
+  if (project.errors !== 'glitchtip') return json({ error: `No error tracker for ${name}` }, 404);
+  const config = glitchTipConfig(env);
+  if (!config) return json({ error: 'ADS errors are not configured' }, 501);
+  const rules = routeRules(name);
+  try {
+    const issues = await listIssues(config, params.data.limit, fetch);
+    const scrubbed = await inBatches(issues, LOG_BATCH, async ({ id, ...issue }) => ({
+      ...issue,
+      title: issueType(issue.title),
+      culprit: (await safeCulprit(issue.culprit, key, rules)).slice(0, MAX_TEXT),
+      ...(params.data.frames
+        ? { frames: await Promise.all((await latestFrames(config, id, fetch)).map((frame) => scrubText(frame, key, rules))) }
+        : {}),
+    }));
+    return json({ issues: scrubbed });
+  } catch {
+    // A fixed message: an upstream error can quote the body it choked on.
+    return json({ error: 'GlitchTip could not be read' }, 502);
+  }
 }
 
 const RunsParamsSchema = z.object({
@@ -138,7 +219,7 @@ export default {
     const key = env.PSEUDONYM_KEY;
     if (!key) return json({ error: 'Agent Idea is not configured' }, 503);
 
-    const match = /^\/v1\/(access|logs|runs)\/([\w-]+)(?:\/(\d+))?$/.exec(url.pathname);
+    const match = /^\/v1\/(access|logs|runs|errors)\/([\w-]+)(?:\/(\d+))?$/.exec(url.pathname);
     if (!match || request.method !== 'GET') return json({ error: 'Not found' }, 404);
     const [, route = '', name = '', runId] = match;
     if (runId !== undefined && route !== 'runs') return json({ error: 'Not found' }, 404);
@@ -158,6 +239,7 @@ export default {
     if (route === 'logs') return logs(url, name, project, env, key);
     if (route === 'runs' && runId !== undefined) return run(url, name, project, token, Number(runId), key);
     if (route === 'runs') return runs(url, name, project, token, key);
+    if (route === 'errors') return errors(url, name, project, env, key);
     return json({ project: name, repo: project.repo, login: access.login, access: 'write' });
   },
 } satisfies ExportedHandler<Env>;

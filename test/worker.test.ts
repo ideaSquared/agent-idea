@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker, { type Env } from '../src/index.ts';
-import { fakeGitHub, fakeKv } from './fakes.ts';
+import { adsLogLine, fakeGitHub, fakeHttp, fakeKv, glitchTipEvent, glitchTipIssue, lokiBody } from './fakes.ts';
 
 const env = (overrides: Partial<Env> = {}): Env => ({
   ACCESS_CACHE: fakeKv(),
@@ -224,5 +224,190 @@ describe('GET /v1/runs/:project', () => {
     stubRuns(true);
     const response = await worker.fetch(request('/v1/logs/pairflix/5', 't'), env());
     expect(response.status).toBe(404);
+  });
+});
+
+describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => {
+  const adsEnv = (overrides: Partial<Env> = {}): Env =>
+    env({
+      ADS_LOKI_URL: 'https://loki.ads.example',
+      ADS_GLITCHTIP_URL: 'https://errors.ads.example',
+      ADS_GLITCHTIP_ORG: 'ideasquared',
+      ADS_GLITCHTIP_PROJECT: 'ads-staging',
+      ADS_GLITCHTIP_TOKEN: 'gt-token',
+      ADS_ACCESS_CLIENT_ID: 'cid.access',
+      ADS_ACCESS_CLIENT_SECRET: 'csecret',
+      ...overrides,
+    });
+
+  function stubAds(push: boolean, { lines = [adsLogLine()], issues = [glitchTipIssue()], lokiStatus = 200, event = glitchTipEvent() as unknown } = {}) {
+    const stub = fakeHttp({
+      '/user': { status: 200, body: { login: 'octocat' } },
+      '/repos/ideaSquared/adopt-dont-shop': { status: 200, body: { permissions: { push, admin: false } } },
+      '/repos/ideaSquared/pairflix': { status: 200, body: { permissions: { push, admin: false } } },
+      '/loki/api/v1/query_range': { status: lokiStatus, body: lokiBody(lines.map((line, i) => [`179467870${i}000000000`, line] as const)) },
+      '/api/0/projects/ideasquared/ads-staging/issues/': { status: 200, body: issues },
+      '/api/0/issues/42/events/latest/': { status: 200, body: event },
+    });
+    vi.stubGlobal('fetch', stub.fetcher);
+    return stub;
+  }
+
+  const LEAKS = ['alex', 'Alex Jenkins', '203.0.113.42', '3f2b8c1e', 'permalink', 'glitchtip.example', 'userCount', 'session=abc', 'breadcrumbs'];
+
+  describe('GET /v1/logs/ads', () => {
+    it('returns sanitised Loki events', async () => {
+      stubAds(true);
+      const response = await worker.fetch(request('/v1/logs/ads?level=error', 't'), adsEnv());
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({
+        events: [
+          {
+            timestamp: '2026-11-14T17:51:41.868Z',
+            level: 'error',
+            service: 'gateway',
+            route: '/api/v1/pets/:param',
+            status: 500,
+            durationMs: 42,
+            errorType: 'TypeError',
+            message: 'request failed for [email] from [ip]',
+            stack: ['src/routes/pets.ts:42', 'process:7'],
+          },
+        ],
+        scanned: 1,
+      });
+      LEAKS.forEach((leak) => expect(JSON.stringify(body)).not.toContain(leak));
+    });
+
+    it('searches only sanitised events', async () => {
+      stubAds(true);
+      const hidden = await worker.fetch(request('/v1/logs/ads?search=alex', 't'), adsEnv());
+      expect(await hidden.json()).toEqual({ events: [], scanned: 1 });
+      const visible = await worker.fetch(request('/v1/logs/ads?search=request%20failed', 't'), adsEnv());
+      expect(((await visible.json()) as { events: unknown[] }).events).toHaveLength(1);
+    });
+
+    it('says so when ADS logs are not configured, without asking Loki', async () => {
+      const { calls } = stubAds(true);
+      const response = await worker.fetch(request('/v1/logs/ads', 't'), adsEnv({ ADS_LOKI_URL: '', ADS_ACCESS_CLIENT_SECRET: undefined }));
+      expect(response.status).toBe(501);
+      expect(await response.json()).toEqual({ error: 'ADS logs are not configured' });
+      expect(calls.some((call) => call.url.includes('loki'))).toBe(false);
+    });
+
+    it('refuses without write access, before asking Loki', async () => {
+      const { calls } = stubAds(false);
+      const response = await worker.fetch(request('/v1/logs/ads', 't'), adsEnv());
+      expect(response.status).toBe(403);
+      expect(calls.some((call) => call.url.includes('loki'))).toBe(false);
+    });
+
+    it('answers 502 with a fixed message when Access turns the Worker away', async () => {
+      stubAds(true, { lokiStatus: 403 });
+      const response = await worker.fetch(request('/v1/logs/ads', 't'), adsEnv());
+      expect(response.status).toBe(502);
+      expect(await response.json()).toEqual({ error: 'Loki could not be read' });
+    });
+  });
+
+  describe('GET /v1/errors/:project', () => {
+    it('returns scrubbed unresolved issues, without links or event bodies', async () => {
+      stubAds(true);
+      const response = await worker.fetch(request('/v1/errors/ads', 't'), adsEnv());
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { issues: Array<Record<string, unknown>> };
+      expect(body.issues).toEqual([
+        {
+          shortId: 'ADS-1A',
+          title: 'TypeError',
+          culprit: expect.stringMatching(/^GET \/api\/v1\/users\/:param$/),
+          count: 17,
+          firstSeen: '2026-11-13T09:00:00.000Z',
+          lastSeen: '2026-11-14T17:00:00.000Z',
+          level: 'error',
+        },
+      ]);
+      LEAKS.forEach((leak) => expect(JSON.stringify(body)).not.toContain(leak));
+    });
+
+    it('adds the latest stack frames, file:line only, when asked', async () => {
+      stubAds(true);
+      const response = await worker.fetch(request('/v1/errors/ads?frames=true', 't'), adsEnv());
+      const body = (await response.json()) as { issues: Array<{ frames?: string[] }> };
+      expect(body.issues[0]?.frames).toEqual(['src/lib/owner.ts:9', 'src/routes/pets.ts:42']);
+      LEAKS.forEach((leak) => expect(JSON.stringify(body)).not.toContain(leak));
+    });
+
+    const firstIssue = async (overrides: Record<string, unknown>, query = '') => {
+      stubAds(true, { issues: [glitchTipIssue(overrides)] });
+      const response = await worker.fetch(request(`/v1/errors/ads${query}`, 't'), adsEnv());
+      return ((await response.json()) as { issues: Array<{ title: string; culprit: string; frames?: string[] }> }).issues[0];
+    };
+
+    it('returns only the exception type of a title, never its free-text message', async () => {
+      expect((await firstIssue({ title: 'TypeError: cannot read owner of Alex Jenkins' }))?.title).toBe('TypeError');
+      expect((await firstIssue({ title: 'Alex Jenkins could not log in' }))?.title).toBe('Error');
+    });
+
+    it('templates a bare-path culprit and drops one it cannot read', async () => {
+      expect((await firstIssue({ culprit: '/api/v1/users/alex-jenkins?view=profile' }))?.culprit).toBe('/api/v1/users/:param');
+      expect((await firstIssue({ culprit: 'Alex Jenkins pressed save twice' }))?.culprit).toBe('');
+    });
+
+    it('clips a culprit only after scrubbing it, so a secret across the limit is still removed', async () => {
+      const issue = await firstIssue({ culprit: `${'h'.repeat(284)} in src/alex@example.org.ts` });
+      expect(issue?.culprit).not.toContain('alex');
+      expect(issue?.culprit.length).toBeLessThanOrEqual(300);
+    });
+
+    it('scrubs stack frame paths', async () => {
+      const event = glitchTipEvent();
+      const values = (event.entries[0]?.data as { values: Array<{ stacktrace: { frames: Array<Record<string, unknown>> } }> }).values;
+      values[0]?.stacktrace.frames.push({ filename: '/opt/ads/src/alex@example.org.ts', lineNo: 9, inApp: true });
+      stubAds(true, { event });
+      const response = await worker.fetch(request('/v1/errors/ads?frames=true', 't'), adsEnv());
+      const body = JSON.stringify(await response.json());
+      expect(body).not.toContain('alex');
+    });
+
+    it('says so when ADS errors are not configured', async () => {
+      const { calls } = stubAds(true);
+      const response = await worker.fetch(request('/v1/errors/ads', 't'), adsEnv({ ADS_GLITCHTIP_TOKEN: undefined }));
+      expect(response.status).toBe(501);
+      expect(await response.json()).toEqual({ error: 'ADS errors are not configured' });
+      expect(calls.some((call) => call.url.includes('/api/0/'))).toBe(false);
+    });
+
+    it('says a project has no error tracker', async () => {
+      stubAds(true);
+      const response = await worker.fetch(request('/v1/errors/pairflix', 't'), adsEnv());
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: 'No error tracker for pairflix' });
+    });
+
+    it('refuses without write access, before asking GlitchTip', async () => {
+      const { calls } = stubAds(false);
+      const response = await worker.fetch(request('/v1/errors/ads', 't'), adsEnv());
+      expect(response.status).toBe(403);
+      expect(calls.some((call) => call.url.includes('/api/0/'))).toBe(false);
+    });
+
+    it('records the audit line for the errors route', async () => {
+      stubAds(true);
+      const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+      await worker.fetch(request('/v1/errors/ads', 't'), adsEnv());
+      const lines = log.mock.calls.map((call) => JSON.parse(String(call[0])));
+      expect(lines).toEqual([
+        expect.objectContaining({ message: 'access checked', meta: { actor: 'octocat', project: 'ads', route: 'errors', outcome: 'allowed' } }),
+      ]);
+      log.mockRestore();
+    });
+
+    it('rejects a limit over 25', async () => {
+      stubAds(true);
+      const response = await worker.fetch(request('/v1/errors/ads?limit=26', 't'), adsEnv());
+      expect(response.status).toBe(400);
+    });
   });
 });

@@ -4,9 +4,20 @@
   "compatibility_date": "2026-11-01",
   // Caches GitHub access checks for 5 minutes, keyed by a hash of the token. The token is never stored.
   "kv_namespaces": [{ "binding": "ACCESS_CACHE" }],
-  "vars": { "CF_ACCOUNT_ID": "3f6731f1c1d43d5d6274d16218e08d56" },
+  "vars": {
+    "CF_ACCOUNT_ID": "3f6731f1c1d43d5d6274d16218e08d56",
+    // adopt-dont-shop staging, behind a Cloudflare Tunnel and Access (docs/ads-tunnel.md). Empty means not set up:
+    // `idea logs ads` and `idea errors ads` then answer 501. Example: "https://ads-loki.example.com".
+    "ADS_LOKI_URL": "",
+    "ADS_GLITCHTIP_URL": "",
+    "ADS_GLITCHTIP_ORG": "",
+    "ADS_GLITCHTIP_PROJECT": ""
+  },
   // Secrets (wrangler secret put):
-  //   PSEUDONYM_KEY  the HMAC key that turns ids into stable, irreversible tags
-  //   CF_API_TOKEN   a Cloudflare API token with Workers Observability read only
+  //   PSEUDONYM_KEY             the HMAC key that turns ids into stable, irreversible tags
+  //   CF_API_TOKEN              a Cloudflare API token with Workers Observability read only
+  //   ADS_ACCESS_CLIENT_ID      Cloudflare Access service token id, for the ADS tunnel
+  //   ADS_ACCESS_CLIENT_SECRET  Cloudflare Access service token secret, for the ADS tunnel
+  //   ADS_GLITCHTIP_TOKEN       a GlitchTip API token with event:read (project:read) only
   "observability": { "enabled": true }
 }

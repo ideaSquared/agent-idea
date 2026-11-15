@@ -6,6 +6,7 @@ export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
   idea logs <project> [--since <hours>] [--level debug|info|warn|error] [--search <text>] [--limit <n>] [--json]
   idea runs <project> [--failed] [--limit <n>] [--json]       recent GitHub Actions runs
   idea run <project> <run id> [--tail <lines>] [--json]      a run's jobs, with each failed job's log
+  idea errors <project> [--limit <n>] [--frames] [--json]    top unresolved errors (ads only), --frames adds file:line
   idea access <project>
   idea mcp                                                    MCP server over stdio, for Claude Code
 
@@ -35,6 +36,17 @@ type Run = {
   branch?: string;
   sha: string;
   createdAt: string;
+};
+
+type Issue = {
+  shortId: string;
+  title: string;
+  culprit: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  level: string;
+  frames?: string[];
 };
 
 type Job = { name: string; status: string; conclusion: string | null; failedSteps: string[]; log?: string[] };
@@ -73,6 +85,17 @@ export function formatJob(job: Job): string {
   return job.log ? `${head}\n${job.log.map((line) => `    ${line}`).join('\n')}` : head;
 }
 
+function shortTime(timestamp: string): string {
+  return timestamp.replace('T', ' ').replace(/:\d{2}(\.\d+)?Z$/, 'Z');
+}
+
+// One line per issue: short id, level, count, last and first seen, title, then the culprit; frames underneath.
+export function formatIssue(issue: Issue): string {
+  const culprit = issue.culprit ? `  (${issue.culprit})` : '';
+  const head = [issue.shortId, issue.level.toUpperCase(), `${issue.count}x`, `last ${shortTime(issue.lastSeen)}`, `first ${shortTime(issue.firstSeen)}`, `${issue.title}${culprit}`].join('  ');
+  return `${head}${(issue.frames ?? []).map((frame) => `\n    at ${frame}`).join('')}`;
+}
+
 export async function run(argv: readonly string[], deps: Deps): Promise<void> {
   const { positionals, values } = parseArgs({
     args: [...argv],
@@ -84,6 +107,7 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
       limit: { type: 'string' },
       failed: { type: 'boolean' },
       tail: { type: 'string' },
+      frames: { type: 'boolean' },
       json: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -124,6 +148,14 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
     const body = (await call(deps, `/v1/runs/${encodeURIComponent(project)}/${runId}?${query}`)) as { jobs: Job[] };
     if (values.json) return deps.out(JSON.stringify(body.jobs, null, 2));
     return body.jobs.forEach((job) => deps.out(formatJob(job)));
+  }
+
+  if (command === 'errors') {
+    const query = new URLSearchParams({ ...(values.limit ? { limit: values.limit } : {}), ...(values.frames ? { frames: 'true' } : {}) });
+    const body = (await call(deps, `/v1/errors/${encodeURIComponent(project)}?${query}`)) as { issues: Issue[] };
+    if (values.json) return deps.out(JSON.stringify(body.issues, null, 2));
+    if (body.issues.length === 0) return deps.out('No unresolved issues.');
+    return body.issues.forEach((issue) => deps.out(formatIssue(issue)));
   }
 
   throw new Error(`Unknown command '${command}'.\n\n${USAGE}`);

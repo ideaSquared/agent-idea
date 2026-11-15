@@ -172,6 +172,23 @@ describe('get_run', () => {
   });
 });
 
+describe('get_errors', () => {
+  it('fetches the project errors with limit and frames', async () => {
+    const body = { issues: [{ shortId: 'ADS-1', level: 'error', count: 3, firstSeen: 'a', lastSeen: 'b', title: 'TypeError', frames: ['src/x.ts:1'] }] };
+    const { value, requests } = api({ '/v1/errors/ads': { status: 200, body } });
+    const result = await callTool('get_errors', { project: 'ads', limit: 5, frames: true }, value);
+    expect(requests[0]?.url.pathname).toBe('/v1/errors/ads');
+    expect(requests[0]?.url.searchParams.toString()).toBe('limit=5&frames=true');
+    expect(JSON.parse(textOf(result))).toEqual(body);
+  });
+
+  it.each([{ limit: 0 }, { limit: 26 }, { frames: 'yes' }])('rejects bad input %o', async (bad) => {
+    const { value, requests } = api();
+    expect((await callTool('get_errors', { project: 'ads', ...bad }, value)).isError).toBe(true);
+    expect(requests).toEqual([]);
+  });
+});
+
 describe('MCP server', () => {
   async function connect(deps: ApiDeps): Promise<Client> {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -184,7 +201,7 @@ describe('MCP server', () => {
   it('lists the tools, read-only, with their input schemas', async () => {
     const client = await connect(api().value);
     const { tools } = await client.listTools();
-    expect(tools.map((item) => item.name)).toEqual(['list_projects', 'check_access', 'get_logs', 'list_runs', 'get_run']);
+    expect(tools.map((item) => item.name)).toEqual(['list_projects', 'check_access', 'get_logs', 'list_runs', 'get_run', 'get_errors']);
     const getLogs = tools.find((item) => item.name === 'get_logs');
     expect(getLogs?.annotations?.readOnlyHint).toBe(true);
     expect(getLogs?.inputSchema.required).toEqual(['project']);
