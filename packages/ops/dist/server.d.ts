@@ -1,4 +1,4 @@
-import type { Fetch, OpsCache } from './access.ts';
+import type { Access, Fetch, OpsCache } from './access.ts';
 import type { Args, Command } from './contract.ts';
 export type OpsContext = {
     login: string;
@@ -22,9 +22,18 @@ export type OpsLogger = {
     warn(message: 'ops command rejected', fields?: OpsLogFields): void;
     error(message: 'ops command failed', fields?: OpsLogFields, error?: unknown): void;
 };
-export type OpsHandlerOptions = {
-    product: string;
+export type OpsAuthorize = (token: string, ctx: {
+    fetch: Fetch;
+}) => Promise<Access>;
+type OpsAccess = {
     repo: string;
+    authorize?: undefined;
+} | {
+    repo?: undefined;
+    authorize: OpsAuthorize;
+};
+export type OpsHandlerOptions = OpsAccess & {
+    product: string;
     environment: string;
     commands: readonly OpsCommand[];
     fetch?: Fetch;
@@ -33,3 +42,4 @@ export type OpsHandlerOptions = {
 };
 export type OpsHandler = (request: Request, basePath: string) => Promise<Response>;
 export declare function createOpsHandler(options: OpsHandlerOptions): OpsHandler;
+export {};

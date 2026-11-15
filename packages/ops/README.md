@@ -6,7 +6,7 @@ is the client. [creatrgrid](https://github.com/ideaSquared/creatrgrid) is the fi
 adopt-dont-shop keeps its own richer `service.ops` for now.
 
 ```bash
-pnpm add https://github.com/ideaSquared/agent-idea/releases/download/ops-v0.1.1/ideasquared-ops-0.1.1.tgz
+pnpm add https://github.com/ideaSquared/agent-idea/releases/download/ops-v0.2.0/ideasquared-ops-0.2.0.tgz
 ```
 
 Each release is a tarball on a GitHub Release, and the lockfile pins it with an integrity hash. Don't install from a
@@ -89,6 +89,37 @@ app.all('/ops/*', (c) => handler(c.req.raw, '/ops'));
 without `dryRun`. `run` and `preview` get the validated `args` and a context `{ login }` (the caller's GitHub login).
 They return `{ result, summary? }`. The `fetch` option replaces the global `fetch` used to reach GitHub (for tests).
 
+## Choosing who may call it
+
+Give `createOpsHandler` exactly one way to authorise, or it throws at startup (neither, or both, is an error):
+
+- `repo: 'owner/name'`: the built-in check. The caller needs write access (push, maintain or admin) to that repo.
+  The optional `cache` applies to this check only.
+- `authorize: (token, { fetch }) => Promise<Access>`: your own check, which replaces the repo check. It returns
+  `{ outcome: 'allowed', login }`, `{ outcome: 'denied', login }` or `{ outcome: 'unauthenticated' }`, and maps to
+  200, 403 and 401 as above. `fetch` is the handler's `fetch` option. If it throws, the caller gets 500 `internal`,
+  logged like any other unexpected failure (error type only). `cache` is not used with `authorize`: do your own
+  caching, and never log or return the token or login.
+
+`checkTeamMembership(token, { org, team }, fetch)` is a ready-made authoriser: it calls GitHub `GET /user`, then
+`GET /orgs/{org}/teams/{team}/memberships/{login}` with the caller's own token. An `active` membership is allowed
+(a `pending` invitation is denied), 404 is denied, 401 is unauthenticated, and any other status throws. `org` and
+`team` must be GitHub slugs (letters, digits, `-` and `_`), or it throws. Separate environments can use separate teams:
+
+```ts
+import { checkTeamMembership, createOpsHandler } from '@ideasquared/ops';
+
+const handler = createOpsHandler({
+  product: 'adopt-dont-shop',
+  environment: 'production',
+  // Production callers must be in this team; staging uses its own team.
+  authorize: (token, { fetch }) => checkTeamMembership(token, { org: 'ideaSquared', team: 'ads-ops-production' }, fetch),
+  commands,
+});
+```
+
+The token needs the `read:org` scope to see the team: without it GitHub answers 404 and the caller is denied.
+
 ## How eng uses it
 
 ```ts
@@ -110,8 +141,8 @@ server does.
 
 ## Safety notes
 
-- **Access is decided by GitHub**, with the caller's own token, on every request (cached 5 minutes under a SHA-256 of
-  the token, never the token). Read access is not enough: anyone can read a public repo. If the cache fails, GitHub is
+- **Access is decided by GitHub**, with the caller's own token, on every request (the built-in repo check is cached 5
+  minutes under a SHA-256 of the token, never the token; a custom `authorize` does its own caching). Read access is not enough: anyone can read a public repo. If the cache fails, GitHub is
   asked.
 - **Return ids and counts, not personal data.** A result is sent to the caller as it is: put no emails, names, tokens
   or message text in `result`, `summary` or an `OpsError` message.

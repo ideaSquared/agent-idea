@@ -15,4 +15,9 @@ export type OpsCache = {
     }): Promise<unknown>;
 };
 export declare function checkWriteAccess(token: string, repo: string, fetcher: Fetch): Promise<Access>;
+export type TeamRef = {
+    org: string;
+    team: string;
+};
+export declare function checkTeamMembership(token: string, { org, team }: TeamRef, fetcher: Fetch): Promise<Access>;
 export declare function cachedWriteAccess(token: string, repo: string, cache: OpsCache, fetcher: Fetch): Promise<Access>;
