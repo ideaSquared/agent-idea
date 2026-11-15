@@ -25,6 +25,14 @@ describe('listIssues', () => {
     expect(call?.redirect).toBe('manual');
   });
 
+  it('narrows to an environment with the environment parameter, and sends none otherwise', async () => {
+    const { fetcher, calls } = fakeHttp({ [ISSUES]: { status: 200, body: [glitchTipIssue()] } });
+    await listIssues(config, 10, fetcher, 'staging');
+    await listIssues(config, 10, fetcher);
+    expect(new URL(calls[0]?.url ?? '').searchParams.get('environment')).toBe('staging');
+    expect(new URL(calls[1]?.url ?? '').searchParams.has('environment')).toBe(false);
+  });
+
   it('keeps only the summary fields, most frequent first', async () => {
     const { fetcher } = fakeHttp({
       [ISSUES]: { status: 200, body: [glitchTipIssue({ id: '7', shortId: 'ADS-7', count: 2 }), glitchTipIssue()] },
@@ -60,6 +68,22 @@ describe('latestFrames', () => {
     const { fetcher } = fakeHttp({ '/api/0/issues/42/events/latest/': { status: 200, body: glitchTipEvent() } });
     const frames = await latestFrames(config, '42', fetcher);
     expect(frames).toEqual(['src/lib/owner.ts:9', 'src/routes/pets.ts:42']);
+  });
+
+  it('with an environment, uses the latest event of that environment, not a newer one from another', async () => {
+    const production = { ...glitchTipEvent(), environment: 'production', entries: [{ type: 'exception', data: { values: [{ stacktrace: { frames: [{ filename: '/opt/ads/src/prod-only.ts', lineNo: 1, inApp: true }] } }] } }] };
+    const staging = { ...glitchTipEvent(), tags: [{ key: 'environment', value: 'staging' }] };
+    const { fetcher, calls } = fakeHttp({ '/api/0/issues/42/events/': { status: 200, body: [production, staging] } });
+    const frames = await latestFrames(config, '42', fetcher, 'staging');
+    expect(frames).toEqual(['src/lib/owner.ts:9', 'src/routes/pets.ts:42']);
+    expect(frames.join()).not.toContain('prod-only');
+    expect(calls.some(({ url }) => url.includes('environment=staging') && url.includes('full=true'))).toBe(true);
+  });
+
+  it('with an environment and no matching event, returns no frames rather than another environment\'s', async () => {
+    const production = { ...glitchTipEvent(), environment: 'production' };
+    const { fetcher } = fakeHttp({ '/api/0/issues/42/events/': { status: 200, body: [production] } });
+    expect(await latestFrames(config, '42', fetcher, 'staging')).toEqual([]);
   });
 
   it('returns no frames for an event without an exception', async () => {

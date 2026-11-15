@@ -483,21 +483,54 @@ describe('--env on /v1/logs and /v1/errors', () => {
     expect(calls.some((call) => call.url.includes('telemetry'))).toBe(false);
   });
 
-  it('refuses --env for ads logs, because staging and prod both label Loki env=production', async () => {
+  const NOT_REACHABLE = (environment: string) =>
+    `The ${environment} logs and errors for 'ads' are not reachable through Agent Idea yet: only the staging server's Loki and GlitchTip are behind the tunnel`;
+  const lokiSelector = (calls: Array<{ url: string }>) => new URL(calls.find((call) => call.url.includes('/loki/'))?.url ?? 'https://none.example').searchParams.get('query');
+
+  it('selects only env="staging" streams in Loki for ads logs', async () => {
     const { calls } = stub();
-    const response = await worker.fetch(request('/v1/logs/ads?env=staging', 't'), adsEnv);
+    const response = await worker.fetch(request('/v1/logs/ads?env=staging&level=error', 't'), adsEnv);
+    expect(response.status).toBe(200);
+    expect(lokiSelector(calls)).toBe('{service=~".+", env="staging", level="error"}');
+  });
+
+  it('leaves the Loki selector without an env matcher when --env is not given', async () => {
+    const { calls } = stub();
+    await worker.fetch(request('/v1/logs/ads', 't'), adsEnv);
+    expect(lokiSelector(calls)).toBe('{service=~".+"}');
+  });
+
+  it('refuses ads production logs with a clear 400 and never calls Loki', async () => {
+    const { calls } = stub();
+    const response = await worker.fetch(request('/v1/logs/ads?env=production', 't'), adsEnv);
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: noEnvs('ads') });
+    expect(await response.json()).toEqual({ error: NOT_REACHABLE('production') });
     expect(calls.some((call) => call.url.includes('loki'))).toBe(false);
   });
 
-  it('refuses --env for ads errors, because GlitchTip reports environment production from both', async () => {
+  it('asks GlitchTip for only environment=staging issues for ads errors', async () => {
+    const { calls } = stub();
+    const response = await worker.fetch(request('/v1/errors/ads?env=staging', 't'), adsEnv);
+    expect(response.status).toBe(200);
+    const issuesCall = calls.find((call) => call.url.includes('/issues/'));
+    expect(new URL(issuesCall?.url ?? 'https://none.example').searchParams.get('environment')).toBe('staging');
+  });
+
+  it('sends no environment filter to GlitchTip when --env is not given', async () => {
+    const { calls } = stub();
+    await worker.fetch(request('/v1/errors/ads', 't'), adsEnv);
+    const issuesCall = calls.find((call) => call.url.includes('/issues/'));
+    expect(new URL(issuesCall?.url ?? 'https://none.example').searchParams.has('environment')).toBe(false);
+  });
+
+  it('refuses ads production errors with a clear 400 and never calls GlitchTip', async () => {
     const { calls } = stub();
     const response = await worker.fetch(request('/v1/errors/ads?env=production', 't'), adsEnv);
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: noEnvs('ads') });
+    expect(await response.json()).toEqual({ error: NOT_REACHABLE('production') });
     expect(calls.some((call) => call.url.includes('/api/0/'))).toBe(false);
   });
+
 
   it('leaves ads logs and errors unchanged without it', async () => {
     const { calls } = stub();

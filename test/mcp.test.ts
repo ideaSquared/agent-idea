@@ -114,6 +114,12 @@ describe('get_logs', () => {
     expect(requests[0]?.url.searchParams.toString()).toBe('since=24&level=error&search=youtube&limit=10');
   });
 
+  it('passes env staging for ads logs to the API', async () => {
+    const { value, requests } = api({ '/v1/logs/ads': { status: 200, body: { events: [], scanned: 0 } } });
+    await callTool('get_logs', { project: 'ads', env: 'staging' }, value);
+    expect(requests[0]?.url.searchParams.get('env')).toBe('staging');
+  });
+
   it('passes env to the API', async () => {
     const { value, requests } = api({ '/v1/logs/pairflix': { status: 200, body: { events: [], scanned: 0 } } });
     await callTool('get_logs', { project: 'pairflix', env: 'staging' }, value);
@@ -195,12 +201,19 @@ describe('get_errors', () => {
     expect(JSON.parse(textOf(result))).toEqual(body);
   });
 
+  it('passes env staging for ads to the API', async () => {
+    const { value, requests } = api({ '/v1/errors/ads': { status: 200, body: { issues: [] } } });
+    const result = await callTool('get_errors', { project: 'ads', env: 'staging' }, value);
+    expect(requests[0]?.url.searchParams.get('env')).toBe('staging');
+    expect(result.isError).toBeFalsy();
+  });
+
   it('passes env to the API and returns its refusal', async () => {
-    const { value, requests } = api({ '/v1/errors/ads': { status: 400, body: { error: "Project 'ads' has no way to tell environments apart, so --env is not available" } } });
+    const { value, requests } = api({ '/v1/errors/ads': { status: 400, body: { error: "The production logs and errors for 'ads' are not reachable through Agent Idea yet: only the staging server's Loki and GlitchTip are behind the tunnel" } } });
     const result = await callTool('get_errors', { project: 'ads', env: 'production' }, value);
     expect(requests[0]?.url.searchParams.get('env')).toBe('production');
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain("Project 'ads'");
+    expect(textOf(result)).toContain("'ads' are not reachable");
   });
 
   it.each([{ limit: 0 }, { limit: 26 }, { env: 'dev' }, { frames: 'yes' }])('rejects bad input %o', async (bad) => {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Environment } from '../projects.ts';
 import { accessHeaders, type AccessToken } from './cf-access.ts';
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -9,13 +10,17 @@ export type LokiQuery = {
   from: number;
   to: number;
   level?: 'debug' | 'info' | 'warn' | 'error';
+  // One of the fixed environment names, never user text: it goes straight into the selector.
+  env?: Environment;
   limit: number;
 };
 
-// Every stream adopt-dont-shop's Loki sink writes carries `service` and `level` labels. There is deliberately no
-// line filter: searching raw lines would reveal whether data the sanitiser removes (a name, an email) is in them.
-export function buildLogQL(level?: LokiQuery['level']): string {
-  return level ? `{service=~".+", level="${level}"}` : '{service=~".+"}';
+// Every stream adopt-dont-shop's Loki sink writes carries `service`, `env` (DEPLOY_ENV) and `level` labels. There is
+// deliberately no line filter: searching raw lines would reveal whether data the sanitiser removes (a name, an
+// email) is in them. Only the two enums reach the selector.
+export function buildLogQL(level?: LokiQuery['level'], env?: Environment): string {
+  const matchers = ['service=~".+"', ...(env ? [`env="${env}"`] : []), ...(level ? [`level="${level}"`] : [])];
+  return `{${matchers.join(', ')}}`;
 }
 
 // Only the fields we read from an @ideasquared/log line. Everything else (other meta fields, the error message,
@@ -72,7 +77,7 @@ export function toRawEvent(line: string, nanoseconds: string): Record<string, un
 
 export async function fetchLokiLogs(query: LokiQuery, config: LokiConfig, fetcher: Fetch): Promise<Array<Record<string, unknown>>> {
   const params = new URLSearchParams({
-    query: buildLogQL(query.level),
+    query: buildLogQL(query.level, query.env),
     // Loki reads a decimal as seconds, so the millisecond bounds must be whole numbers before adding the zeros.
     start: `${Math.floor(query.from)}000000`,
     end: `${Math.ceil(query.to)}000000`,

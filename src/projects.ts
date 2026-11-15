@@ -10,6 +10,10 @@ export type Project = {
   // then `--env` is refused rather than returning everything. A Worker not listed here (for example one whose
   // name does not say its environment) is never returned for a filtered query.
   environments?: Readonly<Record<Environment, readonly string[]>>;
+  // For a project whose logs and errors come from one server, the only environment that server serves. `--env` for
+  // it is allowed and passed to the source as a filter, and `--env` for the other environment is refused without
+  // calling the source.
+  reachable?: Environment;
   // Where the project's logs live when they are not in Workers Logs.
   logs?: 'loki';
   // The project's error tracker, if it has one.
@@ -21,10 +25,15 @@ export function noEnvironments(name: string): string {
   return `Project '${name}' has no way to tell environments apart, so --env is not available`;
 }
 
+// The message for an environment of a project whose source only serves the other one.
+export function notReachable(name: string, environment: Environment): string {
+  return `The ${environment} logs and errors for '${name}' are not reachable through Agent Idea yet: only the staging server's Loki and GlitchTip are behind the tunnel`;
+}
+
 export const PROJECTS: Readonly<Record<string, Project>> = {
-  // ADS logs and errors cannot be split by environment: both services run NODE_ENV=production on staging and prod,
-  // so Loki's `env` label and GlitchTip's environment read `production` on both. No `environments` here.
-  ads: { repo: 'ideaSquared/adopt-dont-shop', workers: [], logs: 'loki', errors: 'glitchtip' },
+  // ADS's Loki `env` label and GlitchTip `environment` carry DEPLOY_ENV (staging | production). Only the staging
+  // server's Loki and GlitchTip are behind the tunnel (docs/ads-tunnel.md), so only `--env staging` is served.
+  ads: { repo: 'ideaSquared/adopt-dont-shop', workers: [], logs: 'loki', errors: 'glitchtip', reachable: 'staging' },
   creatrgrid: {
     repo: 'ideaSquared/creatrgrid',
     workers: [

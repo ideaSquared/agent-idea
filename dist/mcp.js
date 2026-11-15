@@ -39,7 +39,7 @@ const project = z.enum(PROJECT_NAMES).describe('The ideaSquared project. Call li
 const env = z
     .enum(ENVIRONMENTS)
     .optional()
-    .describe('Only this environment. Omit for all. A project that cannot tell environments apart (ads today) returns an error instead.');
+    .describe('Only this environment. Omit for all. A project that cannot tell environments apart returns an error instead, and ads only has staging reachable (production returns an error).');
 const path = (route, name) => `/v1/${route}/${encodeURIComponent(name)}`;
 const ACCESS_NOTE = 'You only get data for a project if the signed-in GitHub user has write access to its repo; otherwise the tool returns an error saying so. ' +
     'Everything returned has already been sanitised by the Agent Idea API: personal data and secrets are removed and ids are replaced with stable pseudonyms such as id_1a2b3c4d.';
