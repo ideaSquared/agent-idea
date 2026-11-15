@@ -147,11 +147,21 @@ export function createOpsHandler(options: OpsHandlerOptions): OpsHandler {
     return cache ? cachedWriteAccess(token, repo, cache, fetcher) : checkWriteAccess(token, repo, fetcher);
   };
 
+  // A custom authoriser's own errors, OpsError included, must never reach the caller: anything it throws becomes the
+  // generic 500, and only the error's type goes on to the log.
+  const callAuthorize = async (check: OpsAuthorize, token: string): Promise<Access> => {
+    try {
+      return await check(token, { fetch: fetcher });
+    } catch (cause) {
+      const failed = new Error('authoriser threw');
+      failed.name = cause instanceof Error ? cause.name : 'UnknownError';
+      throw failed;
+    }
+  };
+
   const authenticate = async (request: Request): Promise<string> => {
     const token = bearerToken(request);
-    const access: Access = authorize
-      ? await authorize(token, { fetch: fetcher })
-      : await builtIn(token);
+    const access: Access = authorize ? await callAuthorize(authorize, token) : await builtIn(token);
     if (access.outcome === 'unauthenticated') throw new OpsError('unauthenticated', 'the GitHub token was rejected');
     if (access.outcome === 'denied') throw new OpsError('forbidden', authorize ? 'access denied' : 'write access to the repo is required');
     return access.login;

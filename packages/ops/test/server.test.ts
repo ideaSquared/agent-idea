@@ -281,6 +281,20 @@ describe('a custom authorize', () => {
     }
   });
 
+  it('answers the generic 500 even when the authoriser throws an OpsError carrying private detail', async () => {
+    const { invoke, sink } = build(async () => {
+      throw new OpsError('forbidden', `not in team for alex@example.com ${secret}`);
+    });
+    const response = await invoke('accounts.purge');
+    expect(response.status).toBe(500);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ error: { code: 'internal', message: 'internal error' } });
+    for (const leak of [secret, 'alex@example.com', 'not in team']) {
+      expect(text).not.toContain(leak);
+      expect(JSON.stringify(sink.events)).not.toContain(leak);
+    }
+  });
+
   it('never logs the token or the login', async () => {
     const { invoke, sink } = build(async () => ({ outcome: 'allowed', login: 'octocat' }));
     await invoke('accounts.purge');
