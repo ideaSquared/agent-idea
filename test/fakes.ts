@@ -35,9 +35,14 @@ type HttpRoute = { status: number; body?: unknown };
 // A fetch that answers any host's paths from a table and records every call with its headers, for the sources
 // behind Cloudflare Access (Loki, GlitchTip), where the Access headers matter.
 export function fakeHttp(routes: Record<string, HttpRoute>) {
-  const calls: Array<{ url: string; headers: Headers; redirect: RequestInit['redirect'] }> = [];
+  const calls: Array<{ url: string; headers: Headers; redirect: RequestInit['redirect']; body?: string }> = [];
   const fetcher = async (input: string, init?: RequestInit): Promise<Response> => {
-    calls.push({ url: input, headers: new Headers(init?.headers), redirect: init?.redirect });
+    calls.push({
+      url: input,
+      headers: new Headers(init?.headers),
+      redirect: init?.redirect,
+      body: typeof init?.body === 'string' ? init.body : undefined,
+    });
     const route = routes[new URL(input).pathname];
     if (!route) return new Response('not found', { status: 404 });
     return Response.json(route.body ?? {}, { status: route.status });

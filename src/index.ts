@@ -1,7 +1,7 @@
 import { createLogger } from '@ideasquared/log';
 import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
-import { PROJECTS, type Project } from './projects.ts';
+import { ENVIRONMENTS, noEnvironments, PROJECTS, type Environment, type Project } from './projects.ts';
 import { routeRules, type RouteRules } from './route-words.ts';
 import { sanitiseEvent, scrubText, templateRoute, type SanitisedEvent } from './sanitise.ts';
 import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
@@ -49,6 +49,7 @@ function audit(entry: { login?: string; project: string; route: string; outcome:
 const LogsParamsSchema = z.object({
   since: z.coerce.number().positive().max(MAX_SINCE_HOURS).default(1),
   level: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  env: z.enum(ENVIRONMENTS).optional(),
   search: z.string().min(1).max(100).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -76,24 +77,33 @@ function glitchTipConfig(env: Env): GlitchTipConfig | undefined {
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 // Raw events from the project's log source, or the response to send when the source can't be read.
-async function rawLogs(project: Project, env: Env, query: { from: number; to: number; level?: LogLevel; limit: number }): Promise<Array<Record<string, unknown>> | Response> {
+async function rawLogs(
+  name: string,
+  project: Project,
+  env: Env,
+  query: { from: number; to: number; level?: LogLevel; limit: number },
+  environment?: Environment,
+): Promise<Array<Record<string, unknown>> | Response> {
   if (project.logs === 'loki') {
+    if (environment) return json({ error: noEnvironments(name) }, 400);
     const loki = lokiConfig(env);
     if (!loki) return json({ error: 'ADS logs are not configured' }, 501);
     // A fixed message: an upstream error can quote the body it choked on.
     return fetchLokiLogs(query, loki, fetch).catch(() => json({ error: 'Loki could not be read' }, 502));
   }
+  const workers = environment ? project.environments?.[environment] : project.workers;
+  if (!workers) return json({ error: noEnvironments(name) }, 400);
   if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return json({ error: 'Workers Logs is not configured' }, 503);
-  return fetchWorkerLogs({ ...query, workers: project.workers }, { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_API_TOKEN }, fetch);
+  return fetchWorkerLogs({ ...query, workers }, { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_API_TOKEN }, fetch);
 }
 
 async function logs(url: URL, name: string, project: Project, env: Env, key: string): Promise<Response> {
   const params = LogsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return json({ error: 'Bad query', details: params.error.issues.map((issue) => issue.message) }, 400);
-  const { since, level, search, limit } = params.data;
+  const { since, level, env: environment, search, limit } = params.data;
 
   const to = Date.now();
-  const raw = await rawLogs(project, env, { from: to - since * HOUR, to, level, limit: search ? SEARCH_SCAN : limit });
+  const raw = await rawLogs(name, project, env, { from: to - since * HOUR, to, level, limit: search ? SEARCH_SCAN : limit }, environment);
   if (raw instanceof Response) return raw;
   const rules = routeRules(name);
   const settled = await Promise.allSettled(raw.map((event) => sanitiseEvent(event, key, rules)));
@@ -103,6 +113,7 @@ async function logs(url: URL, name: string, project: Project, env: Env, key: str
 }
 
 const ErrorsParamsSchema = z.object({
+  env: z.enum(ENVIRONMENTS).optional(),
   limit: z.coerce.number().int().min(1).max(25).default(10),
   frames: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
 });
@@ -129,6 +140,8 @@ async function errors(url: URL, name: string, project: Project, env: Env, key: s
   const params = ErrorsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return badQuery(params.error);
   if (project.errors !== 'glitchtip') return json({ error: `No error tracker for ${name}` }, 404);
+  // GlitchTip's issues carry an environment, but ADS reports `production` from both staging and prod.
+  if (params.data.env) return json({ error: noEnvironments(name) }, 400);
   const config = glitchTipConfig(env);
   if (!config) return json({ error: 'ADS errors are not configured' }, 501);
   const rules = routeRules(name);

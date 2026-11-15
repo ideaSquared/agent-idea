@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { ApiError, call, PROJECT_NAMES, type ApiDeps } from './client.ts';
+import { ApiError, call, ENVIRONMENTS, PROJECT_NAMES, type ApiDeps } from './client.ts';
 
 // Each tool is a thin wrapper over one Agent Idea API route. The API checks access and sanitises; this only asks.
 export type Tool = {
@@ -54,6 +54,10 @@ export function tool<S extends z.ZodRawShape>(definition: {
 }
 
 const project = z.enum(PROJECT_NAMES).describe('The ideaSquared project. Call list_projects to see them all.');
+const env = z
+  .enum(ENVIRONMENTS)
+  .optional()
+  .describe('Only this environment. Omit for all. A project that cannot tell environments apart (ads today) returns an error instead.');
 const path = (route: string, name: string): string => `/v1/${route}/${encodeURIComponent(name)}`;
 
 const ACCESS_NOTE =
@@ -83,11 +87,12 @@ export const TOOLS: readonly Tool[] = [
       project,
       since_hours: z.number().positive().max(168).optional().describe('How far back to look, in hours. Default 1, max 168 (7 days).'),
       level: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Only events at this level.'),
+      env,
       search: z.string().min(1).max(100).optional().describe('Case-insensitive text to match in message, route, service or error type.'),
       limit: z.number().int().min(1).max(200).optional().describe('Most events to return. Default 50, max 200.'),
     },
     run: (args, api) =>
-      call(api, `${path('logs', args.project)}${query({ since: args.since_hours, level: args.level, search: args.search, limit: args.limit })}`),
+      call(api, `${path('logs', args.project)}${query({ since: args.since_hours, level: args.level, env: args.env, search: args.search, limit: args.limit })}`),
   }),
   tool({
     name: 'list_runs',
@@ -118,10 +123,11 @@ export const TOOLS: readonly Tool[] = [
       `Lists the busiest unresolved errors from the project's error tracker (GlitchTip; only ads has one). Returns { issues }: each with shortId, level, count, firstSeen, lastSeen, a scrubbed title and culprit, and with frames=true the latest event's stack frames as file:line. Projects without an error tracker return an error. ${ACCESS_NOTE}`,
     input: {
       project,
+      env,
       limit: z.number().int().min(1).max(25).optional().describe('Issues to return. Default 10, max 25.'),
       frames: z.boolean().optional().describe("Add each issue's latest stack frames (file:line)."),
     },
-    run: (args, api) => call(api, `${path('errors', args.project)}${query({ limit: args.limit, frames: args.frames })}`),
+    run: (args, api) => call(api, `${path('errors', args.project)}${query({ env: args.env, limit: args.limit, frames: args.frames })}`),
   }),
 ];
 

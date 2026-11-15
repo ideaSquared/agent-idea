@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 // The projects the API knows (src/projects.ts). The CLI ships on its own, so it keeps a copy; a test checks they match.
 export const PROJECT_NAMES = ['ads', 'creatrgrid', 'gaminginit', 'gaminginit-bot', 'ideasquared-bot', 'pairflix'];
+export const ENVIRONMENTS = ['staging', 'production'];
 export class ApiError extends Error {
 }
 function ghToken() {

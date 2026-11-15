@@ -411,3 +411,98 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
     });
   });
 });
+
+describe('--env on /v1/logs and /v1/errors', () => {
+  const adsEnv = env({
+    ADS_LOKI_URL: 'https://loki.ads.example',
+    ADS_GLITCHTIP_URL: 'https://errors.ads.example',
+    ADS_GLITCHTIP_ORG: 'ideasquared',
+    ADS_GLITCHTIP_PROJECT: 'ads-staging',
+    ADS_GLITCHTIP_TOKEN: 'gt-token',
+    ADS_ACCESS_CLIENT_ID: 'cid.access',
+    ADS_ACCESS_CLIENT_SECRET: 'csecret',
+  });
+
+  function stub() {
+    const write = { status: 200, body: { permissions: { push: true, admin: false } } };
+    const http = fakeHttp({
+      '/user': { status: 200, body: { login: 'octocat' } },
+      '/repos/ideaSquared/pairflix': write,
+      '/repos/ideaSquared/creatrgrid': write,
+      '/repos/ideaSquared/gaminginit': write,
+      '/repos/ideaSquared/adopt-dont-shop': write,
+      [LOGS_PATH]: { status: 200, body: { success: true, result: { events: { events: [] } } } },
+      '/loki/api/v1/query_range': { status: 200, body: lokiBody([]) },
+      '/api/0/projects/ideasquared/ads-staging/issues/': { status: 200, body: [] },
+    });
+    vi.stubGlobal('fetch', http.fetcher);
+    return http;
+  }
+
+  const queriedWorkers = (calls: Array<{ url: string; body?: string }>): string[] => {
+    const body: { parameters: { filters: Array<{ key: string; value: string }> } } = JSON.parse(
+      calls.find((call) => call.url.includes('telemetry'))?.body ?? '{}',
+    );
+    return (body.parameters.filters.find((filter) => filter.key === '$metadata.service')?.value ?? '').split(',');
+  };
+
+  const noEnvs = (name: string) => `Project '${name}' has no way to tell environments apart, so --env is not available`;
+
+  it('asks Cloudflare for only that environment, leaving out Workers that do not say which they are', async () => {
+    const { calls } = stub();
+    await worker.fetch(request('/v1/logs/pairflix?env=staging', 't'), env());
+    expect(queriedWorkers(calls)).toEqual(['pairflix-api-staging']);
+    calls.length = 0;
+    await worker.fetch(request('/v1/logs/pairflix?env=production', 't'), env());
+    expect(queriedWorkers(calls)).toEqual(['pairflix-api-production']);
+  });
+
+  it('treats unsuffixed creatrgrid Workers as production', async () => {
+    const { calls } = stub();
+    await worker.fetch(request('/v1/logs/creatrgrid?env=production', 't'), env());
+    expect(queriedWorkers(calls)).toEqual(['creatorgrid-api', 'creatorgrid-web', 'creatorgrid-dashboard', 'creatorgrid-admin']);
+  });
+
+  it('still asks for every Worker without it', async () => {
+    const { calls } = stub();
+    await worker.fetch(request('/v1/logs/pairflix', 't'), env());
+    expect(queriedWorkers(calls)).toEqual(['pairflix-api', 'pairflix-api-staging', 'pairflix-api-production', 'pairflix-client', 'pairflix-admin']);
+  });
+
+  it('rejects an unknown environment', async () => {
+    stub();
+    expect((await worker.fetch(request('/v1/logs/pairflix?env=dev', 't'), env())).status).toBe(400);
+    expect((await worker.fetch(request('/v1/errors/ads?env=dev', 't'), adsEnv)).status).toBe(400);
+  });
+
+  it('fails naming the project when Workers cannot be told apart, rather than returning everything', async () => {
+    const { calls } = stub();
+    const response = await worker.fetch(request('/v1/logs/gaminginit?env=staging', 't'), env());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: noEnvs('gaminginit') });
+    expect(calls.some((call) => call.url.includes('telemetry'))).toBe(false);
+  });
+
+  it('refuses --env for ads logs, because staging and prod both label Loki env=production', async () => {
+    const { calls } = stub();
+    const response = await worker.fetch(request('/v1/logs/ads?env=staging', 't'), adsEnv);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: noEnvs('ads') });
+    expect(calls.some((call) => call.url.includes('loki'))).toBe(false);
+  });
+
+  it('refuses --env for ads errors, because GlitchTip reports environment production from both', async () => {
+    const { calls } = stub();
+    const response = await worker.fetch(request('/v1/errors/ads?env=production', 't'), adsEnv);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: noEnvs('ads') });
+    expect(calls.some((call) => call.url.includes('/api/0/'))).toBe(false);
+  });
+
+  it('leaves ads logs and errors unchanged without it', async () => {
+    const { calls } = stub();
+    expect((await worker.fetch(request('/v1/logs/ads', 't'), adsEnv)).status).toBe(200);
+    expect((await worker.fetch(request('/v1/errors/ads', 't'), adsEnv)).status).toBe(200);
+    expect(calls.some((call) => call.url.includes('loki'))).toBe(true);
+  });
+});

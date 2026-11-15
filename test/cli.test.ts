@@ -51,6 +51,24 @@ describe('idea logs', () => {
     expect(new URL(urls[0] ?? '').searchParams.toString()).toBe('since=24&level=error&search=youtube');
   });
 
+  it('passes --env to the API', async () => {
+    const { value, urls } = deps({ '/v1/logs/pairflix': { status: 200, body: { events: [] } } });
+    await run(['logs', 'pairflix', '--env', 'staging'], value);
+    expect(new URL(urls[0] ?? '').searchParams.get('env')).toBe('staging');
+  });
+
+  it('sends no env without --env', async () => {
+    const { value, urls } = deps({ '/v1/logs/pairflix': { status: 200, body: { events: [] } } });
+    await run(['logs', 'pairflix'], value);
+    expect(new URL(urls[0] ?? '').searchParams.has('env')).toBe(false);
+  });
+
+  it('rejects an unknown environment before calling the API', async () => {
+    const { value, urls } = deps({});
+    await expect(run(['logs', 'pairflix', '--env', 'dev'], value)).rejects.toThrow("--env must be staging or production, not 'dev'");
+    expect(urls).toEqual([]);
+  });
+
   it('prints JSON with --json', async () => {
     const { value, lines } = deps({ '/v1/logs/pairflix': { status: 200, body: { events: [event] } } });
     await run(['logs', 'pairflix', '--json'], value);
@@ -158,5 +176,15 @@ describe('idea errors', () => {
   it("shows the API's reason for a project with no error tracker", async () => {
     const { value } = deps({ '/v1/errors/pairflix': { status: 404, body: { error: 'No error tracker for pairflix' } } });
     await expect(run(['errors', 'pairflix'], value)).rejects.toThrow('No error tracker for pairflix');
+  });
+});
+
+describe('idea errors --env', () => {
+  it('passes --env to the API and shows its refusal', async () => {
+    const { value, urls } = deps({
+      '/v1/errors/ads': { status: 400, body: { error: "Project 'ads' has no way to tell environments apart, so --env is not available" } },
+    });
+    await expect(run(['errors', 'ads', '--env', 'production'], value)).rejects.toThrow("Project 'ads' has no way to tell environments apart");
+    expect(new URL(urls[0] ?? '').searchParams.get('env')).toBe('production');
   });
 });
