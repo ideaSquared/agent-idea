@@ -156,7 +156,7 @@ async function errors(url: URL, name: string, project: Project, env: Env, key: s
       title: issueType(issue.title),
       culprit: (await safeCulprit(issue.culprit, key, rules)).slice(0, MAX_TEXT),
       ...(params.data.frames
-        ? { frames: await Promise.all((await latestFrames(config, id, fetch)).map((frame) => scrubText(frame, key, rules))) }
+        ? { frames: await Promise.all((await latestFrames(config, id, fetch, environment)).map((frame) => scrubText(frame, key, rules))) }
         : {}),
     }));
     return json({ issues: scrubbed });

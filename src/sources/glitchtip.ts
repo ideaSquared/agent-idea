@@ -114,10 +114,32 @@ function frame(file: string, line: number): string | undefined {
   return /^[\w./@-]{1,200}:\d+$/.test(text) ? text : undefined;
 }
 
+// An event's environment, from its `environment` field or its environment tag. Only compared against the fixed names.
+const EnvironmentOfSchema = z.object({
+  environment: z.string().optional(),
+  tags: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
+});
+const environmentOf = (event: unknown): string | undefined => {
+  const parsed = EnvironmentOfSchema.safeParse(event);
+  if (!parsed.success) return undefined;
+  return parsed.data.environment ?? parsed.data.tags?.find((tag) => tag.key === 'environment')?.value;
+};
+
 // The latest event's stack frames as file:line, innermost first: the in-app frames when there are any, else all.
-// Nothing else of the event is read: no exception value, request, user, tags, breadcrumbs, context lines or vars.
-export async function latestFrames(config: GlitchTipConfig, issueId: string, fetcher: Fetch): Promise<string[]> {
-  const body = EventSchema.parse(await getJson(config, fetcher, `/api/0/issues/${encodeURIComponent(issueId)}/events/latest/`));
+// Nothing else of the event is read: no exception value, request, user, breadcrumbs, context lines or vars.
+// With an environment, the latest event of that environment is used (an issue can hold events from both while
+// DEPLOY_ENV rolls out); if none of the recent events matches, there are no frames rather than another
+// environment's.
+export async function latestFrames(config: GlitchTipConfig, issueId: string, fetcher: Fetch, environment?: Environment): Promise<string[]> {
+  const issue = encodeURIComponent(issueId);
+  if (!environment) return framesOf(EventSchema.parse(await getJson(config, fetcher, `/api/0/issues/${issue}/events/latest/`)));
+  const query = new URLSearchParams({ full: 'true', environment });
+  const events = z.array(z.unknown()).parse(await getJson(config, fetcher, `/api/0/issues/${issue}/events/?${query}`));
+  const match = events.find((event) => environmentOf(event) === environment);
+  return match === undefined ? [] : framesOf(EventSchema.parse(match));
+}
+
+function framesOf(body: z.infer<typeof EventSchema>): string[] {
   const frames = body.entries
     .filter((entry) => entry.type === 'exception')
     .flatMap((entry) => {
