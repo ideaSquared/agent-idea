@@ -1,12 +1,12 @@
 import { parseArgs } from 'node:util';
-import { call, PROJECT_NAMES, type ApiDeps } from './client.ts';
+import { call, ENVIRONMENTS, PROJECT_NAMES, type ApiDeps } from './client.ts';
 
 export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
 
-  idea logs <project> [--since <hours>] [--level debug|info|warn|error] [--search <text>] [--limit <n>] [--json]
+  idea logs <project> [--since <hours>] [--level debug|info|warn|error] [--env staging|production] [--search <text>] [--limit <n>] [--json]
   idea runs <project> [--failed] [--limit <n>] [--json]       recent GitHub Actions runs
   idea run <project> <run id> [--tail <lines>] [--json]      a run's jobs, with each failed job's log
-  idea errors <project> [--limit <n>] [--frames] [--json]    top unresolved errors (ads only), --frames adds file:line
+  idea errors <project> [--env staging|production] [--limit <n>] [--frames] [--json]    top unresolved errors (ads only), --frames adds file:line
   idea access <project>
   idea mcp                                                    MCP server over stdio, for Claude Code
 
@@ -103,6 +103,7 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
     options: {
       since: { type: 'string' },
       level: { type: 'string' },
+      env: { type: 'string' },
       search: { type: 'string' },
       limit: { type: 'string' },
       failed: { type: 'boolean' },
@@ -121,9 +122,13 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
     return deps.out(`${body.login} has write access to ${body.repo}.`);
   }
 
+  if (values.env !== undefined && !ENVIRONMENTS.some((environment) => environment === values.env)) {
+    throw new Error(`--env must be staging or production, not '${values.env}'.\n\n${USAGE}`);
+  }
+
   if (command === 'logs') {
     const query = new URLSearchParams(
-      Object.entries({ since: values.since, level: values.level, search: values.search, limit: values.limit }).filter(
+      Object.entries({ since: values.since, level: values.level, env: values.env, search: values.search, limit: values.limit }).filter(
         (entry): entry is [string, string] => entry[1] !== undefined,
       ),
     );
@@ -151,7 +156,7 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
   }
 
   if (command === 'errors') {
-    const query = new URLSearchParams({ ...(values.limit ? { limit: values.limit } : {}), ...(values.frames ? { frames: 'true' } : {}) });
+    const query = new URLSearchParams({ ...(values.env ? { env: values.env } : {}), ...(values.limit ? { limit: values.limit } : {}), ...(values.frames ? { frames: 'true' } : {}) });
     const body = (await call(deps, `/v1/errors/${encodeURIComponent(project)}?${query}`)) as { issues: Issue[] };
     if (values.json) return deps.out(JSON.stringify(body.issues, null, 2));
     if (body.issues.length === 0) return deps.out('No unresolved issues.');

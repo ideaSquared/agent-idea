@@ -23,6 +23,7 @@ pnpm add -g github:ideaSquared/agent-idea     # install or update
 ```bash
 idea logs creatrgrid                          # the last hour, oldest first
 idea logs creatrgrid --level error --since 24 # errors in the last 24 hours
+idea logs pairflix --env staging              # only staging's logs (or --env production)
 idea logs pairflix --search youtube           # events mentioning youtube
 idea logs gaminginit-bot --json               # JSON, for piping into other tools or an LLM
 idea runs pairflix --failed                   # recent failed GitHub Actions runs, with their ids
@@ -33,6 +34,13 @@ idea access ads                               # check you have write access
 ```
 
 - `--since` is in hours, up to 168 (Workers Logs keeps 7 days). `--limit` is up to 200, default 50.
+- `--env staging|production` (on `idea logs` and `idea errors`) returns only that environment; without it you get every
+  environment. Anything else is a usage error. For Workers Logs it works by Worker name (the lists in
+  [`src/projects.ts`](src/projects.ts)): a Worker whose name does not say its environment (for example `pairflix-api`)
+  is left out of a filtered query. A project that cannot tell environments apart fails with a message naming the
+  project instead of returning everything. That is every project except creatrgrid and pairflix today, **including
+  ads**: its staging and production stacks both run `NODE_ENV=production`, so Loki's `env` label and GlitchTip's
+  environment read `production` on both.
 - `--search` matches the **sanitised** events only (message, route, service, error type), among the newest ~1,000 in
   the window. It never searches raw logs, so it can't reveal whether hidden data (a slug, an email) is in them.
 - It signs in with `GH_TOKEN`, `GITHUB_TOKEN` or your `gh` login, and talks to `AGENT_IDEA_URL`
@@ -64,10 +72,10 @@ Or add it to a repo's `.mcp.json`:
 | --- | --- | --- |
 | `list_projects` | none | |
 | `check_access` | `GET /v1/access/:project` | `project` |
-| `get_logs` | `GET /v1/logs/:project` | `project`, `since_hours` (max 168), `level`, `search`, `limit` (max 200) |
+| `get_logs` | `GET /v1/logs/:project` | `project`, `since_hours` (max 168), `level`, `env`, `search`, `limit` (max 200) |
 | `list_runs` | `GET /v1/runs/:project` | `project`, `failed`, `limit` (max 50) |
 | `get_run` | `GET /v1/runs/:project/:runId` | `project`, `run_id`, `tail` (max 300) |
-| `get_errors` | `GET /v1/errors/:project` | `project` (ads only), `limit` (max 25), `frames` |
+| `get_errors` | `GET /v1/errors/:project` | `project` (ads only), `env`, `limit` (max 25), `frames` |
 
 - Each tool returns the API's JSON. A refusal (`401` no or bad token, `403` no write access) or a network failure comes
   back as a tool error with a plain message.
@@ -148,8 +156,8 @@ GlitchTip token, and the Worker's secrets and vars) is in [docs/ads-tunnel.md](d
 | --- | --- |
 | `GET /health` | `{ "ok": true }`, no token needed |
 | `GET /v1/access/:project` | `200` with your login if you can write to the project's repo; `401` with no or a bad token, `403` without write access, `404` for an unknown project |
-| `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
-| `GET /v1/errors/:project` | `{ "issues": [...] }`, the busiest unresolved errors first. Query: `limit` (default 10, max 25), `frames=true` for each issue's latest stack frames. `404` for a project with no error tracker (only `ads` has one), `501` while GlitchTip is not configured, `502` if it can't be reached |
+| `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `env` (`staging` or `production`; `400` naming the project if it cannot tell environments apart), `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
+| `GET /v1/errors/:project` | `{ "issues": [...] }`, the busiest unresolved errors first. Query: `env` (as for logs; always `400` for ads today), `limit` (default 10, max 25), `frames=true` for each issue's latest stack frames. `404` for a project with no error tracker (only `ads` has one), `501` while GlitchTip is not configured, `502` if it can't be reached |
 | `GET /v1/runs/:project` | `{ "runs": [...] }`, newest first. Query: `limit` (default 10, max 50), `failed=true` |
 | `GET /v1/runs/:project/:runId` | `{ "jobs": [...] }`: each job's result and failed steps, plus a sanitised `log` tail for failed jobs. Query: `tail` (default 80, max 300) |
 

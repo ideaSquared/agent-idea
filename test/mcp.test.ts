@@ -2,9 +2,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { describe, expect, it } from 'vitest';
-import { PROJECT_NAMES, type ApiDeps } from '../src/cli/client.ts';
+import { ENVIRONMENTS, PROJECT_NAMES, type ApiDeps } from '../src/cli/client.ts';
 import { createServer, TOOLS } from '../src/cli/mcp.ts';
-import { PROJECTS } from '../src/projects.ts';
+import { ENVIRONMENTS as ENVIRONMENT_NAMES, PROJECTS } from '../src/projects.ts';
 
 type Route = { status: number; body: unknown };
 
@@ -45,6 +45,7 @@ describe('list_projects', () => {
 
   it("keeps the CLI's project list in step with the API's", () => {
     expect([...PROJECT_NAMES].sort()).toEqual(Object.keys(PROJECTS).sort());
+    expect([...ENVIRONMENTS]).toEqual([...ENVIRONMENT_NAMES]);
   });
 });
 
@@ -111,6 +112,18 @@ describe('get_logs', () => {
     const { value, requests } = api({ '/v1/logs/pairflix': { status: 200, body: { events: [], scanned: 0 } } });
     await callTool('get_logs', { project: 'pairflix', since_hours: 24, level: 'error', search: 'youtube', limit: 10 }, value);
     expect(requests[0]?.url.searchParams.toString()).toBe('since=24&level=error&search=youtube&limit=10');
+  });
+
+  it('passes env to the API', async () => {
+    const { value, requests } = api({ '/v1/logs/pairflix': { status: 200, body: { events: [], scanned: 0 } } });
+    await callTool('get_logs', { project: 'pairflix', env: 'staging' }, value);
+    expect(requests[0]?.url.searchParams.get('env')).toBe('staging');
+  });
+
+  it('rejects an unknown env before calling the API', async () => {
+    const { value, requests } = api();
+    expect((await callTool('get_logs', { project: 'pairflix', env: 'dev' }, value)).isError).toBe(true);
+    expect(requests).toEqual([]);
   });
 
   it('sends no query when no filters are given', async () => {
@@ -182,7 +195,15 @@ describe('get_errors', () => {
     expect(JSON.parse(textOf(result))).toEqual(body);
   });
 
-  it.each([{ limit: 0 }, { limit: 26 }, { frames: 'yes' }])('rejects bad input %o', async (bad) => {
+  it('passes env to the API and returns its refusal', async () => {
+    const { value, requests } = api({ '/v1/errors/ads': { status: 400, body: { error: "Project 'ads' has no way to tell environments apart, so --env is not available" } } });
+    const result = await callTool('get_errors', { project: 'ads', env: 'production' }, value);
+    expect(requests[0]?.url.searchParams.get('env')).toBe('production');
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("Project 'ads'");
+  });
+
+  it.each([{ limit: 0 }, { limit: 26 }, { env: 'dev' }, { frames: 'yes' }])('rejects bad input %o', async (bad) => {
     const { value, requests } = api();
     expect((await callTool('get_errors', { project: 'ads', ...bad }, value)).isError).toBe(true);
     expect(requests).toEqual([]);
@@ -205,7 +226,7 @@ describe('MCP server', () => {
     const getLogs = tools.find((item) => item.name === 'get_logs');
     expect(getLogs?.annotations?.readOnlyHint).toBe(true);
     expect(getLogs?.inputSchema.required).toEqual(['project']);
-    expect(Object.keys(getLogs?.inputSchema.properties ?? {})).toEqual(['project', 'since_hours', 'level', 'search', 'limit']);
+    expect(Object.keys(getLogs?.inputSchema.properties ?? {})).toEqual(['project', 'since_hours', 'level', 'env', 'search', 'limit']);
   });
 
   it('calls a tool through the protocol', async () => {

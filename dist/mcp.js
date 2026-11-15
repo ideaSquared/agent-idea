@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { ApiError, call, PROJECT_NAMES } from "./client.js";
+import { ApiError, call, ENVIRONMENTS, PROJECT_NAMES } from "./client.js";
 function text(value, isError = false) {
     return { content: [{ type: 'text', text: value }], ...(isError ? { isError: true } : {}) };
 }
@@ -36,6 +36,10 @@ export function tool(definition) {
     };
 }
 const project = z.enum(PROJECT_NAMES).describe('The ideaSquared project. Call list_projects to see them all.');
+const env = z
+    .enum(ENVIRONMENTS)
+    .optional()
+    .describe('Only this environment. Omit for all. A project that cannot tell environments apart (ads today) returns an error instead.');
 const path = (route, name) => `/v1/${route}/${encodeURIComponent(name)}`;
 const ACCESS_NOTE = 'You only get data for a project if the signed-in GitHub user has write access to its repo; otherwise the tool returns an error saying so. ' +
     'Everything returned has already been sanitised by the Agent Idea API: personal data and secrets are removed and ids are replaced with stable pseudonyms such as id_1a2b3c4d.';
@@ -61,10 +65,11 @@ export const TOOLS = [
             project,
             since_hours: z.number().positive().max(168).optional().describe('How far back to look, in hours. Default 1, max 168 (7 days).'),
             level: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Only events at this level.'),
+            env,
             search: z.string().min(1).max(100).optional().describe('Case-insensitive text to match in message, route, service or error type.'),
             limit: z.number().int().min(1).max(200).optional().describe('Most events to return. Default 50, max 200.'),
         },
-        run: (args, api) => call(api, `${path('logs', args.project)}${query({ since: args.since_hours, level: args.level, search: args.search, limit: args.limit })}`),
+        run: (args, api) => call(api, `${path('logs', args.project)}${query({ since: args.since_hours, level: args.level, env: args.env, search: args.search, limit: args.limit })}`),
     }),
     tool({
         name: 'list_runs',
@@ -92,10 +97,11 @@ export const TOOLS = [
         description: `Lists the busiest unresolved errors from the project's error tracker (GlitchTip; only ads has one). Returns { issues }: each with shortId, level, count, firstSeen, lastSeen, a scrubbed title and culprit, and with frames=true the latest event's stack frames as file:line. Projects without an error tracker return an error. ${ACCESS_NOTE}`,
         input: {
             project,
+            env,
             limit: z.number().int().min(1).max(25).optional().describe('Issues to return. Default 10, max 25.'),
             frames: z.boolean().optional().describe("Add each issue's latest stack frames (file:line)."),
         },
-        run: (args, api) => call(api, `${path('errors', args.project)}${query({ limit: args.limit, frames: args.frames })}`),
+        run: (args, api) => call(api, `${path('errors', args.project)}${query({ env: args.env, limit: args.limit, frames: args.frames })}`),
     }),
 ];
 export const VERSION = '0.1.0';
