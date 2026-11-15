@@ -30,25 +30,11 @@ Below, `example.com` stands for a domain on the ideaSquared Cloudflare account. 
 
    The service names are Docker names, because cloudflared runs on the same Docker network (next step).
 
-## 2. Run cloudflared on the ADS staging server
+## 2. Protect both hostnames with Cloudflare Access (before anything runs)
 
-Run it as a container on the stack's Docker network, so it can reach `loki` and `glitchtip-web` by name. Loki has no
-host port, so a cloudflared installed on the host could not reach it.
+Do this before starting cloudflared. ADS's Loki has `auth_enabled: false`, so once the tunnel connects, the
+hostname would serve raw logs to anyone until Access is in front of it.
 
-```bash
-# Find the network the stack runs on (the one loki is attached to):
-docker inspect "$(docker ps -qf name=loki)" -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}'
-
-# Run cloudflared on it. Pin the image to a current release tag rather than latest.
-docker run -d --name cloudflared-agent-idea --restart unless-stopped \
-  --network <network from above> \
-  cloudflare/cloudflared:<version> tunnel --no-autoupdate run --token <tunnel token>
-```
-
-The tunnel shows as **Healthy** in the dashboard once it connects. If GlitchTip is on a different network from Loki,
-connect the container to that one too: `docker network connect <network> cloudflared-agent-idea`.
-
-## 3. Protect both hostnames with Cloudflare Access
 
 1. Zero Trust > Access > Service auth > Service Tokens > **Create service token**. Name it `agent-idea`. Copy the
    **Client ID** and **Client Secret** now: the secret is shown once.
@@ -69,6 +55,27 @@ curl -si https://ads-loki.example.com/loki/api/v1/labels | head -1
 curl -s https://ads-loki.example.com/loki/api/v1/labels \
   -H "CF-Access-Client-Id: <client id>" -H "CF-Access-Client-Secret: <client secret>"
 ```
+
+## 3. Run cloudflared on the ADS staging server
+
+Only after step 2: check that opening the Loki hostname in a browser shows the Access login page, not Loki.
+
+
+Run it as a container on the stack's Docker network, so it can reach `loki` and `glitchtip-web` by name. Loki has no
+host port, so a cloudflared installed on the host could not reach it.
+
+```bash
+# Find the network the stack runs on (the one loki is attached to):
+docker inspect "$(docker ps -qf name=loki)" -f '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}} {{end}}'
+
+# Run cloudflared on it. Pin the image to a current release tag rather than latest.
+docker run -d --name cloudflared-agent-idea --restart unless-stopped \
+  --network <network from above> \
+  cloudflare/cloudflared:<version> tunnel --no-autoupdate run --token <tunnel token>
+```
+
+The tunnel shows as **Healthy** in the dashboard once it connects. If GlitchTip is on a different network from Loki,
+connect the container to that one too: `docker network connect <network> cloudflared-agent-idea`.
 
 ## 4. A GlitchTip API token
 

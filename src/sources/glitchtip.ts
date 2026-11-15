@@ -21,7 +21,7 @@ export type IssueSummary = {
 const LEVELS = ['debug', 'info', 'warning', 'error', 'fatal'] as const;
 // GlitchTip pages issues 50 at a time by default; ask for the busiest first and keep the first page.
 const PAGE = 100;
-const MAX_TEXT = 300;
+export const MAX_TEXT = 300;
 const MAX_FRAMES = 10;
 
 const IssueSchema = z.object({
@@ -92,8 +92,9 @@ export async function listIssues(config: GlitchTipConfig, limit: number, fetcher
     .map((issue) => ({
       id: issue.id,
       shortId: issue.shortId && /^[A-Za-z0-9-]{1,40}$/.test(issue.shortId) ? issue.shortId : issue.id,
-      title: (issue.title ?? '').slice(0, MAX_TEXT),
-      culprit: (issue.culprit ?? '').slice(0, MAX_TEXT),
+      // Kept whole: clipping before the scrubber could cut a secret in half and stop it being recognised.
+      title: issue.title ?? '',
+      culprit: issue.culprit ?? '',
       count: count(issue.count),
       firstSeen: isoDate(issue.firstSeen),
       lastSeen: isoDate(issue.lastSeen),

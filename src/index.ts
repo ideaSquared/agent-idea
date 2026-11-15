@@ -2,10 +2,10 @@ import { createLogger } from '@ideasquared/log';
 import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
 import { PROJECTS, type Project } from './projects.ts';
-import { routeRules } from './route-words.ts';
-import { sanitiseEvent, scrubText, type SanitisedEvent } from './sanitise.ts';
+import { routeRules, type RouteRules } from './route-words.ts';
+import { sanitiseEvent, scrubText, templateRoute, type SanitisedEvent } from './sanitise.ts';
 import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
-import { latestFrames, listIssues, type GlitchTipConfig } from './sources/glitchtip.ts';
+import { latestFrames, listIssues, MAX_TEXT, type GlitchTipConfig } from './sources/glitchtip.ts';
 import { fetchLokiLogs, type LokiConfig } from './sources/loki.ts';
 import { fetchWorkerLogs } from './sources/workers-logs.ts';
 
@@ -107,6 +107,22 @@ const ErrorsParamsSchema = z.object({
   frames: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
 });
 
+// An issue title is usually `Type: message`, and the message is free text that can name a person, so only the
+// exception type is returned. Anything that does not start with an identifier becomes `Error`.
+function issueType(title: string): string {
+  return /^([A-Za-z_$][\w$.]{0,99})(?::|$)/.exec(title.trim())?.[1] ?? 'Error';
+}
+
+// A culprit is a route (`/api/v1/users/alex`), a `METHOD /route`, or a function (`handler in src/file.ts`). Routes are
+// templated, functions are scrubbed, and anything else is dropped rather than guessed at.
+async function safeCulprit(culprit: string, key: string, rules: RouteRules): Promise<string> {
+  const text = culprit.trim();
+  const route = /^(?:([A-Z]+)\s+)?(\/\S*)$/.exec(text);
+  if (route) return `${route[1] ? `${route[1]} ` : ''}${templateRoute(route[2] ?? '/', rules)}`;
+  if (/^[\w$.<>]+(?: in [\w./@<>-]+)?$/.test(text)) return scrubText(text, key, rules);
+  return '';
+}
+
 // Top unresolved issues from the project's error tracker. Titles and culprits are scrubbed like log messages;
 // with frames=true each issue carries its latest event's stack frames, file:line only.
 async function errors(url: URL, name: string, project: Project, env: Env, key: string): Promise<Response> {
@@ -120,9 +136,11 @@ async function errors(url: URL, name: string, project: Project, env: Env, key: s
     const issues = await listIssues(config, params.data.limit, fetch);
     const scrubbed = await inBatches(issues, LOG_BATCH, async ({ id, ...issue }) => ({
       ...issue,
-      title: await scrubText(issue.title, key, rules),
-      culprit: await scrubText(issue.culprit, key, rules),
-      ...(params.data.frames ? { frames: await latestFrames(config, id, fetch) } : {}),
+      title: issueType(issue.title),
+      culprit: (await safeCulprit(issue.culprit, key, rules)).slice(0, MAX_TEXT),
+      ...(params.data.frames
+        ? { frames: await Promise.all((await latestFrames(config, id, fetch)).map((frame) => scrubText(frame, key, rules))) }
+        : {}),
     }));
     return json({ issues: scrubbed });
   } catch {

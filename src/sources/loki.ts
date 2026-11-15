@@ -73,8 +73,9 @@ export function toRawEvent(line: string, nanoseconds: string): Record<string, un
 export async function fetchLokiLogs(query: LokiQuery, config: LokiConfig, fetcher: Fetch): Promise<Array<Record<string, unknown>>> {
   const params = new URLSearchParams({
     query: buildLogQL(query.level),
-    start: `${query.from}000000`,
-    end: `${query.to}000000`,
+    // Loki reads a decimal as seconds, so the millisecond bounds must be whole numbers before adding the zeros.
+    start: `${Math.floor(query.from)}000000`,
+    end: `${Math.ceil(query.to)}000000`,
     limit: String(query.limit),
     direction: 'backward',
   });

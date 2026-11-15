@@ -60,6 +60,14 @@ describe('toRawEvent', () => {
 });
 
 describe('fetchLokiLogs', () => {
+  it('sends whole nanosecond bounds when the window is a fraction of an hour', async () => {
+    const { fetcher, calls } = fakeHttp({ [PATH]: { status: 200, body: lokiBody([]) } });
+    await fetchLokiLogs({ from: 1000.4567, to: 2000.2, limit: 50 }, config, fetcher);
+    const url = new URL(calls[0]?.url ?? '');
+    expect(url.searchParams.get('start')).toBe('1000000000');
+    expect(url.searchParams.get('end')).toBe('2001000000');
+  });
+
   it('sends the Access service token and a bounded query, newest first', async () => {
     const { fetcher, calls } = fakeHttp({
       [PATH]: { status: 200, body: lokiBody([['1794678701000000000', adsLogLine({ message: 'older' })], ['1794678702000000000', adsLogLine({ message: 'newer' })]]) },

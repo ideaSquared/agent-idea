@@ -240,14 +240,14 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
       ...overrides,
     });
 
-  function stubAds(push: boolean, { lines = [adsLogLine()], issues = [glitchTipIssue()], lokiStatus = 200 } = {}) {
+  function stubAds(push: boolean, { lines = [adsLogLine()], issues = [glitchTipIssue()], lokiStatus = 200, event = glitchTipEvent() as unknown } = {}) {
     const stub = fakeHttp({
       '/user': { status: 200, body: { login: 'octocat' } },
       '/repos/ideaSquared/adopt-dont-shop': { status: 200, body: { permissions: { push, admin: false } } },
       '/repos/ideaSquared/pairflix': { status: 200, body: { permissions: { push, admin: false } } },
       '/loki/api/v1/query_range': { status: lokiStatus, body: lokiBody(lines.map((line, i) => [`179467870${i}000000000`, line] as const)) },
       '/api/0/projects/ideasquared/ads-staging/issues/': { status: 200, body: issues },
-      '/api/0/issues/42/events/latest/': { status: 200, body: glitchTipEvent() },
+      '/api/0/issues/42/events/latest/': { status: 200, body: event },
     });
     vi.stubGlobal('fetch', stub.fetcher);
     return stub;
@@ -320,7 +320,7 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
       expect(body.issues).toEqual([
         {
           shortId: 'ADS-1A',
-          title: 'TypeError: no pet for [email]',
+          title: 'TypeError',
           culprit: expect.stringMatching(/^GET \/api\/v1\/users\/:param$/),
           count: 17,
           firstSeen: '2026-11-13T09:00:00.000Z',
@@ -337,6 +337,38 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
       const body = (await response.json()) as { issues: Array<{ frames?: string[] }> };
       expect(body.issues[0]?.frames).toEqual(['src/lib/owner.ts:9', 'src/routes/pets.ts:42']);
       LEAKS.forEach((leak) => expect(JSON.stringify(body)).not.toContain(leak));
+    });
+
+    const firstIssue = async (overrides: Record<string, unknown>, query = '') => {
+      stubAds(true, { issues: [glitchTipIssue(overrides)] });
+      const response = await worker.fetch(request(`/v1/errors/ads${query}`, 't'), adsEnv());
+      return ((await response.json()) as { issues: Array<{ title: string; culprit: string; frames?: string[] }> }).issues[0];
+    };
+
+    it('returns only the exception type of a title, never its free-text message', async () => {
+      expect((await firstIssue({ title: 'TypeError: cannot read owner of Alex Jenkins' }))?.title).toBe('TypeError');
+      expect((await firstIssue({ title: 'Alex Jenkins could not log in' }))?.title).toBe('Error');
+    });
+
+    it('templates a bare-path culprit and drops one it cannot read', async () => {
+      expect((await firstIssue({ culprit: '/api/v1/users/alex-jenkins?view=profile' }))?.culprit).toBe('/api/v1/users/:param');
+      expect((await firstIssue({ culprit: 'Alex Jenkins pressed save twice' }))?.culprit).toBe('');
+    });
+
+    it('clips a culprit only after scrubbing it, so a secret across the limit is still removed', async () => {
+      const issue = await firstIssue({ culprit: `${'h'.repeat(284)} in src/alex@example.org.ts` });
+      expect(issue?.culprit).not.toContain('alex');
+      expect(issue?.culprit.length).toBeLessThanOrEqual(300);
+    });
+
+    it('scrubs stack frame paths', async () => {
+      const event = glitchTipEvent();
+      const values = (event.entries[0]?.data as { values: Array<{ stacktrace: { frames: Array<Record<string, unknown>> } }> }).values;
+      values[0]?.stacktrace.frames.push({ filename: '/opt/ads/src/alex@example.org.ts', lineNo: 9, inApp: true });
+      stubAds(true, { event });
+      const response = await worker.fetch(request('/v1/errors/ads?frames=true', 't'), adsEnv());
+      const body = JSON.stringify(await response.json());
+      expect(body).not.toContain('alex');
     });
 
     it('says so when ADS errors are not configured', async () => {
