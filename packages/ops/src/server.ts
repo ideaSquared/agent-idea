@@ -95,6 +95,31 @@ function assertConsistent(commands: readonly OpsCommand[]): Command[] {
   return metadata;
 }
 
+// The raw error a handler throws can carry personal data, arguments, results or tokens in its message, and the
+// logger copies an error's message and stack. Log only the error's type, and only a known one: `name` is writable,
+// so anything off this list becomes UnknownError.
+const KNOWN_ERROR_NAMES: ReadonlySet<string> = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'URIError',
+  'EvalError',
+  'AggregateError',
+  'AbortError',
+  'TimeoutError',
+  'ZodError',
+  'OpsError',
+]);
+
+function sanitisedCause(cause: unknown): Error {
+  const name = cause instanceof Error && KNOWN_ERROR_NAMES.has(cause.name) ? cause.name : 'UnknownError';
+  const safe = new Error('handler threw');
+  safe.name = name;
+  return safe;
+}
+
 export function createOpsHandler(options: OpsHandlerOptions): OpsHandler {
   const { product, repo, environment, logger, cache } = options;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('repo must be "owner/name"');
@@ -147,9 +172,15 @@ export function createOpsHandler(options: OpsHandlerOptions): OpsHandler {
       outcome: failure ? failure.code : 'ok',
       durationMs: Date.now() - started,
     };
-    if (!failure) logger.info('ops command ran', fields);
-    else if (failure.code === 'internal') logger.error('ops command failed', fields, cause);
-    else logger.warn('ops command rejected', fields);
+    // A logger that throws must never change the response: a write that ran is still reported as ran, so the
+    // caller doesn't retry and repeat it.
+    try {
+      if (!failure) logger.info('ops command ran', fields);
+      else if (failure.code === 'internal') logger.error('ops command failed', fields, sanitisedCause(cause));
+      else logger.warn('ops command rejected', fields);
+    } catch {
+      // Nothing to do: the response below is what matters.
+    }
   };
 
   return async (request, basePath) => {
