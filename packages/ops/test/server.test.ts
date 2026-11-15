@@ -345,6 +345,69 @@ describe('createOpsHandler configuration', () => {
   });
 });
 
+describe('the error type in a failure line', () => {
+  const failingWith = (error: unknown) => {
+    const sink = memorySink();
+    const logger = createLogger({ service: 'creatrgrid-api', fields: ['command', 'mode', 'outcome', 'durationMs'], sink });
+    const handler = createOpsHandler({
+      product: 'creatrgrid',
+      repo: REPO,
+      environment: 'production',
+      commands: [
+        {
+          id: 'accounts.crash',
+          group: 'accounts',
+          name: 'crash',
+          summary: 'Throws',
+          kind: 'read',
+          fields: [],
+          dryRun: false,
+          run: () => {
+            throw error;
+          },
+        },
+      ],
+      fetch: writer().fetcher,
+      logger,
+    });
+    const run = () =>
+      handler(
+        new Request('https://api.example.com/ops/invoke', {
+          method: 'POST',
+          headers: { authorization: 'Bearer gh-secret-token' },
+          body: JSON.stringify({ command: 'accounts.crash', args: {}, mode: 'run' }),
+        }),
+        '/ops',
+      );
+    return { sink, run };
+  };
+  const named = (name: string) => Object.assign(new Error('x'), { name });
+
+  it.each(['alex', 'ghp_SYNTHETIC_TOKEN_123', 'acct_private_42'])('replaces a made-up name (%s) with UnknownError', async (name) => {
+    const { sink, run } = failingWith(named(name));
+    await run();
+    const logged = JSON.stringify(sink.events);
+    expect(logged).not.toContain(name);
+    expect(logged).toContain('UnknownError');
+  });
+
+  it('keeps a known type such as TypeError', async () => {
+    const { sink, run } = failingWith(new TypeError('alex@example.com'));
+    await run();
+    const logged = JSON.stringify(sink.events);
+    expect(logged).toContain('TypeError');
+    expect(logged).not.toContain('alex');
+  });
+
+  it('uses UnknownError for a thrown non-error', async () => {
+    const { sink, run } = failingWith('alex@example.com');
+    await run();
+    const logged = JSON.stringify(sink.events);
+    expect(logged).toContain('UnknownError');
+    expect(logged).not.toContain('alex');
+  });
+});
+
 describe('a logger that throws', () => {
   const throwingLogger = {
     info: () => {

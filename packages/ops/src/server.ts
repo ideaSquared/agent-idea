@@ -96,9 +96,25 @@ function assertConsistent(commands: readonly OpsCommand[]): Command[] {
 }
 
 // The raw error a handler throws can carry personal data, arguments, results or tokens in its message, and the
-// logger copies an error's message and stack. Log only the error's type.
+// logger copies an error's message and stack. Log only the error's type, and only a known one: `name` is writable,
+// so anything off this list becomes UnknownError.
+const KNOWN_ERROR_NAMES: ReadonlySet<string> = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'URIError',
+  'EvalError',
+  'AggregateError',
+  'AbortError',
+  'TimeoutError',
+  'ZodError',
+  'OpsError',
+]);
+
 function sanitisedCause(cause: unknown): Error {
-  const name = cause instanceof Error && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(cause.name) ? cause.name : 'UnknownError';
+  const name = cause instanceof Error && KNOWN_ERROR_NAMES.has(cause.name) ? cause.name : 'UnknownError';
   const safe = new Error('handler threw');
   safe.name = name;
   return safe;

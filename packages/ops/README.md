@@ -117,7 +117,7 @@ server does.
   or message text in `result`, `summary` or an `OpsError` message.
 - **Logging follows the [logging skill](../../.claude/skills/logging/SKILL.md).** One line per invoke: command id (only
   for a known command), mode, outcome and duration, with fixed messages. Never the token, the GitHub login, args or
-  results. An unexpected failure is logged at error level with only the error's type: its message and stack can
+  results. An unexpected failure is logged at error level with only the error's type, from a fixed list of known types (anything else is `UnknownError`): its message and stack can
   carry personal data, args or tokens, so they never reach the log. A logger that throws never changes the response,
   so a write that ran is still reported as ran and the caller has no reason to retry it.
 - Writes should be previewable (`dryRun`) wherever a mistake is costly; clients preview before they run.
