@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Environment } from '../projects.ts';
 import { accessHeaders, type AccessToken } from './cf-access.ts';
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -81,9 +82,10 @@ function count(value: string | number | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-// The project's unresolved issues, most frequent first. Issues that do not parse are dropped.
-export async function listIssues(config: GlitchTipConfig, limit: number, fetcher: Fetch): Promise<IssueSummary[]> {
-  const query = new URLSearchParams({ query: 'is:unresolved', sort: '-count', limit: String(PAGE) });
+// The project's unresolved issues, most frequent first. Issues that do not parse are dropped. `environment` is one of
+// the fixed names and narrows the list with the Sentry API's `environment` parameter.
+export async function listIssues(config: GlitchTipConfig, limit: number, fetcher: Fetch, environment?: Environment): Promise<IssueSummary[]> {
+  const query = new URLSearchParams({ query: 'is:unresolved', sort: '-count', limit: String(PAGE), ...(environment ? { environment } : {}) });
   const path = `/api/0/projects/${encodeURIComponent(config.org)}/${encodeURIComponent(config.project)}/issues/?${query}`;
   const body = z.array(z.unknown()).parse(await getJson(config, fetcher, path));
   return body

@@ -57,7 +57,7 @@ const project = z.enum(PROJECT_NAMES).describe('The ideaSquared project. Call li
 const env = z
   .enum(ENVIRONMENTS)
   .optional()
-  .describe('Only this environment. Omit for all. A project that cannot tell environments apart (ads today) returns an error instead.');
+  .describe('Only this environment. Omit for all. A project that cannot tell environments apart returns an error instead, and ads only has staging reachable (production returns an error).');
 const path = (route: string, name: string): string => `/v1/${route}/${encodeURIComponent(name)}`;
 
 const ACCESS_NOTE =

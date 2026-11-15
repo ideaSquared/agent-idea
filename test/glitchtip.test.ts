@@ -25,6 +25,14 @@ describe('listIssues', () => {
     expect(call?.redirect).toBe('manual');
   });
 
+  it('narrows to an environment with the environment parameter, and sends none otherwise', async () => {
+    const { fetcher, calls } = fakeHttp({ [ISSUES]: { status: 200, body: [glitchTipIssue()] } });
+    await listIssues(config, 10, fetcher, 'staging');
+    await listIssues(config, 10, fetcher);
+    expect(new URL(calls[0]?.url ?? '').searchParams.get('environment')).toBe('staging');
+    expect(new URL(calls[1]?.url ?? '').searchParams.has('environment')).toBe(false);
+  });
+
   it('keeps only the summary fields, most frequent first', async () => {
     const { fetcher } = fakeHttp({
       [ISSUES]: { status: 200, body: [glitchTipIssue({ id: '7', shortId: 'ADS-7', count: 2 }), glitchTipIssue()] },

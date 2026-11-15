@@ -12,6 +12,11 @@ describe('buildLogQL', () => {
     expect(buildLogQL()).toBe('{service=~".+"}');
     expect(buildLogQL('warn')).toBe('{service=~".+", level="warn"}');
   });
+
+  it('adds an env matcher from the fixed environment names', () => {
+    expect(buildLogQL(undefined, 'staging')).toBe('{service=~".+", env="staging"}');
+    expect(buildLogQL('error', 'staging')).toBe('{service=~".+", env="staging", level="error"}');
+  });
 });
 
 describe('toRawEvent', () => {

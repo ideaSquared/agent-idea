@@ -38,9 +38,12 @@ idea access ads                               # check you have write access
   environment. Anything else is a usage error. For Workers Logs it works by Worker name (the lists in
   [`src/projects.ts`](src/projects.ts)): a Worker whose name does not say its environment (for example `pairflix-api`)
   is left out of a filtered query. A project that cannot tell environments apart fails with a message naming the
-  project instead of returning everything. That is every project except creatrgrid and pairflix today, **including
-  ads**: its staging and production stacks both run `NODE_ENV=production`, so Loki's `env` label and GlitchTip's
-  environment read `production` on both.
+  project instead of returning everything. That is every project except creatrgrid, pairflix and ads today. For
+  **ads**, Loki's `env` label and GlitchTip's `environment` carry `DEPLOY_ENV` (`staging` or `production`; ADS sets it
+  per stack), so `--env staging` filters Loki by `env="staging"` and GlitchTip by `environment=staging`. Only the
+  staging server's Loki and GlitchTip are behind the tunnel, so `--env production` for ads fails with a 400 saying so
+  and calls neither. Without `--env`, ads is unfiltered. Events written before ADS set `DEPLOY_ENV` are labelled
+  `production` and do not match `--env staging`.
 - `--search` matches the **sanitised** events only (message, route, service, error type), among the newest ~1,000 in
   the window. It never searches raw logs, so it can't reveal whether hidden data (a slug, an email) is in them.
 - It signs in with `GH_TOKEN`, `GITHUB_TOKEN` or your `gh` login, and talks to `AGENT_IDEA_URL`
@@ -129,7 +132,7 @@ emails are never written in the first place. The sanitiser is the safety net, no
 | Source | Projects | How |
 | --- | --- | --- |
 | Cloudflare Workers Logs | creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix | Workers Observability telemetry query API, filtered to the project's Worker scripts. Only the timestamp, level, service, path, status, wall time and message are read; Cloudflare's client IP, location, headers and TLS details are never touched. |
-| Loki | ads | adopt-dont-shop staging's Loki, reached through a Cloudflare Tunnel behind Cloudflare Access (see [Phase 4](#phase-4-adopt-dont-shop)). A LogQL `query_range` selects by the `service` and `level` labels only, with no line filter. From each `@ideasquared/log` JSON line only the timestamp, level, service, message, `meta.route`, `meta.status`, `meta.durationMs`, the error type and the stack's `at` lines are read; other meta fields and the error message are never touched. |
+| Loki | ads | adopt-dont-shop staging's Loki, reached through a Cloudflare Tunnel behind Cloudflare Access (see [Phase 4](#phase-4-adopt-dont-shop)). A LogQL `query_range` selects by the `service`, `level` and (with `--env staging`) `env` labels only, with no line filter. From each `@ideasquared/log` JSON line only the timestamp, level, service, message, `meta.route`, `meta.status`, `meta.durationMs`, the error type and the stack's `at` lines are read; other meta fields and the error message are never touched. |
 | GlitchTip | ads | adopt-dont-shop's GlitchTip (Sentry API), through the same tunnel. The project's unresolved issues: short id, scrubbed title and culprit, count, first and last seen, level. Optionally the latest event's stack frames as `file:line`. Never the permalink, event bodies, exception values, request data, user, tags, breadcrumbs or source context. |
 | GitHub Actions | all | GitHub's API, called with **your own** token (the one that passed the write-access check), so no extra secret. Runs list the workflow, event, result, short commit and time; the branch only when it is the default branch, and never the commit message, PR title or who triggered it. A run's failed jobs come with the last lines of their log (80 by default, `--tail` up to 300), each line sanitised like any log message. |
 
@@ -156,8 +159,8 @@ GlitchTip token, and the Worker's secrets and vars) is in [docs/ads-tunnel.md](d
 | --- | --- |
 | `GET /health` | `{ "ok": true }`, no token needed |
 | `GET /v1/access/:project` | `200` with your login if you can write to the project's repo; `401` with no or a bad token, `403` without write access, `404` for an unknown project |
-| `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `env` (`staging` or `production`; `400` naming the project if it cannot tell environments apart), `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
-| `GET /v1/errors/:project` | `{ "issues": [...] }`, the busiest unresolved errors first. Query: `env` (as for logs; always `400` for ads today), `limit` (default 10, max 25), `frames=true` for each issue's latest stack frames. `404` for a project with no error tracker (only `ads` has one), `501` while GlitchTip is not configured, `502` if it can't be reached |
+| `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `env` (`staging` or `production`; `400` naming the project if it cannot tell environments apart, or for ads `production`, which is not behind the tunnel), `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
+| `GET /v1/errors/:project` | `{ "issues": [...] }`, the busiest unresolved errors first. Query: `env` (as for logs: ads serves `staging` only, `production` is a `400`), `limit` (default 10, max 25), `frames=true` for each issue's latest stack frames. `404` for a project with no error tracker (only `ads` has one), `501` while GlitchTip is not configured, `502` if it can't be reached |
 | `GET /v1/runs/:project` | `{ "runs": [...] }`, newest first. Query: `limit` (default 10, max 50), `failed=true` |
 | `GET /v1/runs/:project/:runId` | `{ "jobs": [...] }`: each job's result and failed steps, plus a sanitised `log` tail for failed jobs. Query: `tail` (default 80, max 300) |
 

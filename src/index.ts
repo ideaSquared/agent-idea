@@ -1,7 +1,7 @@
 import { createLogger } from '@ideasquared/log';
 import { z } from 'zod';
 import { cachedWriteAccess } from './access.ts';
-import { ENVIRONMENTS, noEnvironments, PROJECTS, type Environment, type Project } from './projects.ts';
+import { ENVIRONMENTS, noEnvironments, notReachable, PROJECTS, type Environment, type Project } from './projects.ts';
 import { routeRules, type RouteRules } from './route-words.ts';
 import { sanitiseEvent, scrubText, templateRoute, type SanitisedEvent } from './sanitise.ts';
 import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
@@ -85,11 +85,13 @@ async function rawLogs(
   environment?: Environment,
 ): Promise<Array<Record<string, unknown>> | Response> {
   if (project.logs === 'loki') {
-    if (environment) return json({ error: noEnvironments(name) }, 400);
+    if (environment && environment !== project.reachable) {
+      return json({ error: project.reachable ? notReachable(name, environment) : noEnvironments(name) }, 400);
+    }
     const loki = lokiConfig(env);
     if (!loki) return json({ error: 'ADS logs are not configured' }, 501);
     // A fixed message: an upstream error can quote the body it choked on.
-    return fetchLokiLogs(query, loki, fetch).catch(() => json({ error: 'Loki could not be read' }, 502));
+    return fetchLokiLogs({ ...query, env: environment }, loki, fetch).catch(() => json({ error: 'Loki could not be read' }, 502));
   }
   const workers = environment ? project.environments?.[environment] : project.workers;
   if (!workers) return json({ error: noEnvironments(name) }, 400);
@@ -140,13 +142,15 @@ async function errors(url: URL, name: string, project: Project, env: Env, key: s
   const params = ErrorsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return badQuery(params.error);
   if (project.errors !== 'glitchtip') return json({ error: `No error tracker for ${name}` }, 404);
-  // GlitchTip's issues carry an environment, but ADS reports `production` from both staging and prod.
-  if (params.data.env) return json({ error: noEnvironments(name) }, 400);
+  const environment = params.data.env;
+  if (environment && environment !== project.reachable) {
+    return json({ error: project.reachable ? notReachable(name, environment) : noEnvironments(name) }, 400);
+  }
   const config = glitchTipConfig(env);
   if (!config) return json({ error: 'ADS errors are not configured' }, 501);
   const rules = routeRules(name);
   try {
-    const issues = await listIssues(config, params.data.limit, fetch);
+    const issues = await listIssues(config, params.data.limit, fetch, environment);
     const scrubbed = await inBatches(issues, LOG_BATCH, async ({ id, ...issue }) => ({
       ...issue,
       title: issueType(issue.title),
