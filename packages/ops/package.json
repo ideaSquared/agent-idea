@@ -1,6 +1,6 @@
 {
   "name": "@ideasquared/ops",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "One ops contract for every ideaSquared product: a runtime-agnostic server helper and a client, gated by GitHub write access.",
   "type": "module",

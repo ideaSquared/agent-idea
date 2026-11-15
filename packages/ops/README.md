@@ -6,7 +6,7 @@ is the client. [creatrgrid](https://github.com/ideaSquared/creatrgrid) is the fi
 adopt-dont-shop keeps its own richer `service.ops` for now.
 
 ```bash
-pnpm add https://github.com/ideaSquared/agent-idea/releases/download/ops-v0.1.0/ideasquared-ops-0.1.0.tgz
+pnpm add https://github.com/ideaSquared/agent-idea/releases/download/ops-v0.1.1/ideasquared-ops-0.1.1.tgz
 ```
 
 Each release is a tarball on a GitHub Release, and the lockfile pins it with an integrity hash. Don't install from a
@@ -117,5 +117,7 @@ server does.
   or message text in `result`, `summary` or an `OpsError` message.
 - **Logging follows the [logging skill](../../.claude/skills/logging/SKILL.md).** One line per invoke: command id (only
   for a known command), mode, outcome and duration, with fixed messages. Never the token, the GitHub login, args or
-  results. An unexpected failure is logged with its error as the third argument, as the skill says.
+  results. An unexpected failure is logged at error level with only the error's type: its message and stack can
+  carry personal data, args or tokens, so they never reach the log. A logger that throws never changes the response,
+  so a write that ran is still reported as ran and the caller has no reason to retry it.
 - Writes should be previewable (`dryRun`) wherever a mistake is costly; clients preview before they run.

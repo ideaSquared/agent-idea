@@ -298,6 +298,15 @@ describe('logging', () => {
     expect(sink.events[0]).toMatchObject({ level: 'error', message: 'ops command failed' });
   });
 
+  it('logs only the type of an unexpected error, never its message or stack', async () => {
+    const { post, sink } = setup();
+    await post({ command: 'accounts.break', args: {}, mode: 'run' });
+    const logged = JSON.stringify(sink.events);
+    expect(logged).not.toContain('alex');
+    expect(logged).not.toContain('boom');
+    expect(logged).toContain('Error');
+  });
+
   it('never logs the token, the GitHub login, args or results', async () => {
     const { post, sink } = setup();
     await post({ command: 'accounts.show', args: { accountId: 'acct-private-1' }, mode: 'run' });
@@ -333,5 +342,76 @@ describe('createOpsHandler configuration', () => {
     expect(() => createOpsHandler({ ...base, commands: [read, read] })).toThrow('duplicate');
     expect(() => createOpsHandler({ ...base, commands: [{ ...read, id: 'x' }] })).toThrow();
     expect(() => createOpsHandler({ ...base, repo: 'nope', commands: [] })).toThrow('owner/name');
+  });
+});
+
+describe('a logger that throws', () => {
+  const throwingLogger = {
+    info: () => {
+      throw new Error('sink down');
+    },
+    warn: () => {
+      throw new Error('sink down');
+    },
+    error: () => {
+      throw new Error('sink down');
+    },
+  };
+  const ran: string[] = [];
+  const handler = createOpsHandler({
+    product: 'creatrgrid',
+    repo: REPO,
+    environment: 'production',
+    commands: [
+      {
+        id: 'accounts.touch',
+        group: 'accounts',
+        name: 'touch',
+        summary: 'Writes once',
+        kind: 'write',
+        fields: [],
+        dryRun: false,
+        run: () => {
+          ran.push('touch');
+          return { result: { touched: true } };
+        },
+      },
+      {
+        id: 'accounts.crash',
+        group: 'accounts',
+        name: 'crash',
+        summary: 'Throws',
+        kind: 'read',
+        fields: [],
+        dryRun: false,
+        run: () => {
+          throw new Error('handler broke');
+        },
+      },
+    ],
+    fetch: writer().fetcher,
+    logger: throwingLogger,
+  });
+  const post = (command: string) =>
+    handler(
+      new Request('https://api.example.com/ops/invoke', {
+        method: 'POST',
+        headers: { authorization: 'Bearer gh-secret-token' },
+        body: JSON.stringify({ command, args: {}, mode: 'run' }),
+      }),
+      '/ops',
+    );
+
+  it('still reports a write that ran as ran', async () => {
+    const response = await post('accounts.touch');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ command: 'accounts.touch', result: { touched: true } });
+    expect(ran).toEqual(['touch']);
+  });
+
+  it('still answers a failure with the contract error', async () => {
+    const response = await post('accounts.crash');
+    expect(response.status).toBe(500);
+    expect((await response.json()).error).toEqual({ code: 'internal', message: 'internal error' });
   });
 });
