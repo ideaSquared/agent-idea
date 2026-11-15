@@ -1,8 +1,9 @@
 import { createLogger, memorySink } from '@ideasquared/log';
 import { describe, expect, it } from 'vitest';
 import { createOpsHandler, OpsError } from '../src/index.ts';
-import type { OpsCommand } from '../src/index.ts';
-import { fakeCache, fakeGitHub, REPO, writer } from './fakes.ts';
+import type { Access, OpsCommand, OpsHandlerOptions } from '../src/index.ts';
+import { checkTeamMembership } from '../src/index.ts';
+import { fakeCache, fakeGitHub, ORG, REPO, TEAM, teamMember, writer } from './fakes.ts';
 
 const calls: string[] = [];
 
@@ -166,6 +167,167 @@ describe('auth', () => {
     await send('/catalog');
     expect(github.calls).toHaveLength(2);
     expect(JSON.stringify([...cache.store])).not.toContain('gh-secret-token');
+  });
+});
+
+describe('a custom authorize', () => {
+  const secret = 'gh-secret-token';
+  const build = (authorize: (token: string) => Promise<Access>) => {
+    const sink = memorySink();
+    const logger = createLogger({ service: 'ads-ops', fields: ['command', 'mode', 'outcome', 'durationMs'], sink });
+    const github = fakeGitHub({});
+    const seen: Array<{ token: string; fetchIsHandlers: boolean }> = [];
+    const handler = createOpsHandler({
+      product: 'ads',
+      environment: 'production',
+      commands,
+      fetch: github.fetcher,
+      logger,
+      authorize: async (token, ctx) => {
+        seen.push({ token, fetchIsHandlers: ctx.fetch === github.fetcher });
+        return authorize(token);
+      },
+    });
+    const call = (path: string, init: RequestInit = {}) =>
+      handler(
+        new Request(`https://api.example.com/ops${path}`, {
+          ...init,
+          headers: { authorization: `Bearer ${secret}` },
+        }),
+        '/ops',
+      );
+    const invoke = (command: string) =>
+      call('/invoke', { method: 'POST', body: JSON.stringify({ command, args: {}, mode: 'run' }) });
+    return { call, invoke, sink, github, seen };
+  };
+
+  it('lets an allowed caller in, with their login, and replaces the repo check', async () => {
+    const { call, invoke, github, seen } = build(async () => ({ outcome: 'allowed', login: 'octocat' }));
+    expect((await call('/catalog')).status).toBe(200);
+    const before = calls.length;
+    expect((await invoke('accounts.purge')).status).toBe(200);
+    expect(calls.length).toBe(before + 1);
+    expect(seen.every((entry) => entry.token === secret && entry.fetchIsHandlers)).toBe(true);
+    expect(github.calls).toHaveLength(0);
+  });
+
+  it('gives the handler the login the authoriser returned', async () => {
+    const handler = createOpsHandler({
+      product: 'ads',
+      environment: 'production',
+      commands,
+      authorize: async () => ({ outcome: 'allowed', login: 'team-member' }),
+    });
+    const response = await handler(
+      new Request('https://api.example.com/ops/invoke', {
+        method: 'POST',
+        headers: { authorization: 'Bearer t' },
+        body: JSON.stringify({ command: 'accounts.resync', args: { accountId: 'a1' }, mode: 'run' }),
+      }),
+      '/ops',
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toContain('resync:a1:team-member');
+  });
+
+  it('answers 403 for a denied caller and never runs the command', async () => {
+    const { call, invoke } = build(async () => ({ outcome: 'denied', login: 'octocat' }));
+    const before = calls.length;
+    expect((await call('/catalog')).status).toBe(403);
+    const response = await invoke('accounts.purge');
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('forbidden');
+    expect(calls.length).toBe(before);
+  });
+
+  it('answers 401 when the authoriser says unauthenticated', async () => {
+    const { call, invoke } = build(async () => ({ outcome: 'unauthenticated' }));
+    expect((await call('/catalog')).status).toBe(401);
+    const response = await invoke('accounts.purge');
+    expect(response.status).toBe(401);
+    expect((await response.json()).error.code).toBe('unauthenticated');
+  });
+
+  it('answers 401 with no token without calling the authoriser', async () => {
+    const { seen } = build(async () => ({ outcome: 'allowed', login: 'octocat' }));
+    const handler = createOpsHandler({
+      product: 'ads',
+      environment: 'production',
+      commands,
+      authorize: async (token) => {
+        seen.push({ token, fetchIsHandlers: false });
+        return { outcome: 'allowed', login: 'octocat' };
+      },
+    });
+    const response = await handler(new Request('https://api.example.com/ops/catalog'), '/ops');
+    expect(response.status).toBe(401);
+    expect(seen).toHaveLength(0);
+  });
+
+  it('answers 500 internal when the authoriser throws, logging only the error type', async () => {
+    const { invoke, sink } = build(async () => {
+      throw new TypeError(`boom for alex@example.com ${secret}`);
+    });
+    const response = await invoke('accounts.purge');
+    expect(response.status).toBe(500);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ error: { code: 'internal', message: 'internal error' } });
+    const serialised = JSON.stringify(sink.events);
+    expect(sink.events.map((event) => event.message)).toEqual(['ops command failed']);
+    expect(serialised).toContain('TypeError');
+    for (const leak of [secret, 'alex@example.com', 'octocat']) {
+      expect(serialised).not.toContain(leak);
+      expect(text).not.toContain(leak);
+    }
+  });
+
+  it('answers the generic 500 even when the authoriser throws an OpsError carrying private detail', async () => {
+    const { invoke, sink } = build(async () => {
+      throw new OpsError('forbidden', `not in team for alex@example.com ${secret}`);
+    });
+    const response = await invoke('accounts.purge');
+    expect(response.status).toBe(500);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ error: { code: 'internal', message: 'internal error' } });
+    for (const leak of [secret, 'alex@example.com', 'not in team']) {
+      expect(text).not.toContain(leak);
+      expect(JSON.stringify(sink.events)).not.toContain(leak);
+    }
+  });
+
+  it('never logs the token or the login', async () => {
+    const { invoke, sink } = build(async () => ({ outcome: 'allowed', login: 'octocat' }));
+    await invoke('accounts.purge');
+    expect(sink.events.map((event) => event.message)).toEqual(['ops command ran']);
+    expect(JSON.stringify(sink.events)).not.toContain(secret);
+    expect(JSON.stringify(sink.events)).not.toContain('octocat');
+  });
+
+  it('does not use the cache, which belongs to the built-in check', async () => {
+    const cache = fakeCache();
+    const handler = createOpsHandler({
+      product: 'ads',
+      environment: 'production',
+      commands,
+      cache,
+      authorize: async () => ({ outcome: 'allowed', login: 'octocat' }),
+    });
+    await handler(new Request('https://api.example.com/ops/catalog', { headers: { authorization: 'Bearer t' } }), '/ops');
+    expect(cache.store.size).toBe(0);
+  });
+
+  it('works end to end with checkTeamMembership', async () => {
+    const send = (github: ReturnType<typeof teamMember>) =>
+      createOpsHandler({
+        product: 'ads',
+        environment: 'production',
+        commands,
+        fetch: github.fetcher,
+        authorize: (token, ctx) => checkTeamMembership(token, { org: ORG, team: TEAM }, ctx.fetch),
+      })(new Request('https://api.example.com/ops/catalog', { headers: { authorization: 'Bearer t' } }), '/ops');
+    expect((await send(teamMember({ status: 200, body: { state: 'active' } }))).status).toBe(200);
+    expect((await send(teamMember({ status: 404 }))).status).toBe(403);
+    expect((await send(teamMember({ status: 500 }))).status).toBe(500);
   });
 });
 
@@ -342,6 +504,17 @@ describe('createOpsHandler configuration', () => {
     expect(() => createOpsHandler({ ...base, commands: [read, read] })).toThrow('duplicate');
     expect(() => createOpsHandler({ ...base, commands: [{ ...read, id: 'x' }] })).toThrow();
     expect(() => createOpsHandler({ ...base, repo: 'nope', commands: [] })).toThrow('owner/name');
+  });
+
+  it('requires exactly one of repo and authorize', () => {
+    const authorize = async (): Promise<Access> => ({ outcome: 'allowed', login: 'octocat' });
+    const { repo: _repo, ...noAccess } = base;
+    // The types already forbid these; the cast reaches the startup check that plain JavaScript callers hit.
+    const loose = (options: object) => options as unknown as OpsHandlerOptions;
+    expect(() => createOpsHandler(loose({ ...noAccess, commands: [] }))).toThrow('either repo or authorize');
+    expect(() => createOpsHandler(loose({ ...base, authorize, commands: [] }))).toThrow('not both');
+    expect(() => createOpsHandler({ ...noAccess, authorize, commands: [] })).not.toThrow();
+    expect(() => createOpsHandler({ ...base, commands: [] })).not.toThrow();
   });
 });
 

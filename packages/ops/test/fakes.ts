@@ -31,3 +31,15 @@ export const writer = () =>
     '/user': { status: 200, body: { login: 'octocat' } },
     [`/repos/${REPO}`]: { status: 200, body: { permissions: { push: true, admin: false } } },
   });
+
+export const ORG = 'ideaSquared';
+export const TEAM = 'ads-ops-production';
+export const membershipPath = (login: string, org = ORG, team = TEAM) =>
+  `/orgs/${org}/teams/${team}/memberships/${login}`;
+
+// A caller GitHub knows as `login`, with the given answer for their team membership.
+export const teamMember = (membership: Route, login = 'octocat') =>
+  fakeGitHub({
+    '/user': { status: 200, body: { login } },
+    [membershipPath(login)]: membership,
+  });

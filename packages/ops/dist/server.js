@@ -66,8 +66,12 @@ function sanitisedCause(cause) {
     return safe;
 }
 export function createOpsHandler(options) {
-    const { product, repo, environment, logger, cache } = options;
-    if (!/^[\w.-]+\/[\w.-]+$/.test(repo))
+    const { product, repo, authorize, environment, logger, cache } = options;
+    if (repo !== undefined && authorize)
+        throw new Error('give either repo or authorize, not both');
+    if (repo === undefined && !authorize)
+        throw new Error('give either repo or authorize');
+    if (repo !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repo))
         throw new Error('repo must be "owner/name"');
     if (!product || !environment)
         throw new Error('product and environment are required');
@@ -75,15 +79,30 @@ export function createOpsHandler(options) {
     const byId = new Map(options.commands.map((command) => [command.id, command]));
     const fetcher = options.fetch ?? ((input, init) => fetch(input, init));
     const catalog = { version: OPS_CONTRACT_VERSION, product, environment, commands };
+    const builtIn = (token) => {
+        if (repo === undefined)
+            throw new Error('repo is required without authorize');
+        return cache ? cachedWriteAccess(token, repo, cache, fetcher) : checkWriteAccess(token, repo, fetcher);
+    };
+    // A custom authoriser's own errors, OpsError included, must never reach the caller: anything it throws becomes the
+    // generic 500, and only the error's type goes on to the log.
+    const callAuthorize = async (check, token) => {
+        try {
+            return await check(token, { fetch: fetcher });
+        }
+        catch (cause) {
+            const failed = new Error('authoriser threw');
+            failed.name = cause instanceof Error ? cause.name : 'UnknownError';
+            throw failed;
+        }
+    };
     const authenticate = async (request) => {
         const token = bearerToken(request);
-        const access = cache
-            ? await cachedWriteAccess(token, repo, cache, fetcher)
-            : await checkWriteAccess(token, repo, fetcher);
+        const access = authorize ? await callAuthorize(authorize, token) : await builtIn(token);
         if (access.outcome === 'unauthenticated')
             throw new OpsError('unauthenticated', 'the GitHub token was rejected');
         if (access.outcome === 'denied')
-            throw new OpsError('forbidden', 'write access to the repo is required');
+            throw new OpsError('forbidden', authorize ? 'access denied' : 'write access to the repo is required');
         return access.login;
     };
     const invoke = async (request, login, trace) => {

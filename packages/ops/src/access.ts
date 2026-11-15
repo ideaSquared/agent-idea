@@ -19,6 +19,9 @@ const RepoSchema = z.object({
   permissions: z.object({ push: z.boolean(), maintain: z.boolean().optional(), admin: z.boolean() }).optional(),
 });
 
+const MembershipSchema = z.object({ state: z.string() });
+const SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
+
 const CACHE_SECONDS = 300;
 
 function github(token: string, fetcher: Fetch, path: string): Promise<Response> {
@@ -46,6 +49,28 @@ export async function checkWriteAccess(token: string, repo: string, fetcher: Fet
   const { permissions } = RepoSchema.parse(await repoResponse.json());
   const canWrite = Boolean(permissions && (permissions.push || permissions.maintain || permissions.admin));
   return { outcome: canWrite ? 'allowed' : 'denied', login };
+}
+
+export type TeamRef = { org: string; team: string };
+
+// Membership of a GitHub team, read with the caller's own token, so GitHub decides. Only an active membership
+// allows: a pending invitation is denied. A 404 means not a member (GitHub also answers 404 when the token cannot
+// see the org's teams, which is a denial too). Any other unexpected status throws, and the handler answers 500.
+export async function checkTeamMembership(token: string, { org, team }: TeamRef, fetcher: Fetch): Promise<Access> {
+  if (!SLUG.test(org)) throw new Error('org must be a GitHub org slug');
+  if (!SLUG.test(team)) throw new Error('team must be a GitHub team slug');
+  const userResponse = await github(token, fetcher, '/user');
+  if (userResponse.status === 401) return { outcome: 'unauthenticated' };
+  if (!userResponse.ok) throw new Error(`GitHub /user answered ${userResponse.status}`);
+  const { login } = UserSchema.parse(await userResponse.json());
+
+  const path = `/orgs/${org}/teams/${team}/memberships/${encodeURIComponent(login)}`;
+  const response = await github(token, fetcher, path);
+  if (response.status === 401) return { outcome: 'unauthenticated' };
+  if (response.status === 404) return { outcome: 'denied', login };
+  if (!response.ok) throw new Error(`GitHub team membership answered ${response.status}`);
+  const { state } = MembershipSchema.parse(await response.json());
+  return { outcome: state === 'active' ? 'allowed' : 'denied', login };
 }
 
 async function sha256(text: string): Promise<string> {

@@ -36,13 +36,24 @@ export type OpsLogger = {
   error(message: 'ops command failed', fields?: OpsLogFields, error?: unknown): void;
 };
 
-export type OpsHandlerOptions = {
-  product: string;
+// A custom access check. It gets the caller's bearer token and the fetch the handler uses, and answers like the
+// built-in check: allowed or denied (each with the GitHub login), or unauthenticated. If it throws, the caller gets
+// 500 `internal`. It does its own caching, and must never log or return the token.
+export type OpsAuthorize = (token: string, ctx: { fetch: Fetch }) => Promise<Access>;
+
+// Exactly one way to authorise: `repo` (the built-in write-access check) or `authorize`. Giving neither or both is
+// a startup error.
+type OpsAccess =
   // "owner/name": callers need write access to this GitHub repo.
-  repo: string;
+  | { repo: string; authorize?: undefined }
+  | { repo?: undefined; authorize: OpsAuthorize };
+
+export type OpsHandlerOptions = OpsAccess & {
+  product: string;
   environment: string;
   commands: readonly OpsCommand[];
   fetch?: Fetch;
+  // Caches the built-in `repo` check only. A custom `authorize` handles its own caching.
   cache?: OpsCache;
   logger?: OpsLogger;
 };
@@ -121,21 +132,38 @@ function sanitisedCause(cause: unknown): Error {
 }
 
 export function createOpsHandler(options: OpsHandlerOptions): OpsHandler {
-  const { product, repo, environment, logger, cache } = options;
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('repo must be "owner/name"');
+  const { product, repo, authorize, environment, logger, cache } = options;
+  if (repo !== undefined && authorize) throw new Error('give either repo or authorize, not both');
+  if (repo === undefined && !authorize) throw new Error('give either repo or authorize');
+  if (repo !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('repo must be "owner/name"');
   if (!product || !environment) throw new Error('product and environment are required');
   const commands = assertConsistent(options.commands);
   const byId = new Map(options.commands.map((command) => [command.id, command]));
   const fetcher: Fetch = options.fetch ?? ((input, init) => fetch(input, init));
   const catalog: Catalog = { version: OPS_CONTRACT_VERSION, product, environment, commands };
 
+  const builtIn = (token: string): Promise<Access> => {
+    if (repo === undefined) throw new Error('repo is required without authorize');
+    return cache ? cachedWriteAccess(token, repo, cache, fetcher) : checkWriteAccess(token, repo, fetcher);
+  };
+
+  // A custom authoriser's own errors, OpsError included, must never reach the caller: anything it throws becomes the
+  // generic 500, and only the error's type goes on to the log.
+  const callAuthorize = async (check: OpsAuthorize, token: string): Promise<Access> => {
+    try {
+      return await check(token, { fetch: fetcher });
+    } catch (cause) {
+      const failed = new Error('authoriser threw');
+      failed.name = cause instanceof Error ? cause.name : 'UnknownError';
+      throw failed;
+    }
+  };
+
   const authenticate = async (request: Request): Promise<string> => {
     const token = bearerToken(request);
-    const access: Access = cache
-      ? await cachedWriteAccess(token, repo, cache, fetcher)
-      : await checkWriteAccess(token, repo, fetcher);
+    const access: Access = authorize ? await callAuthorize(authorize, token) : await builtIn(token);
     if (access.outcome === 'unauthenticated') throw new OpsError('unauthenticated', 'the GitHub token was rejected');
-    if (access.outcome === 'denied') throw new OpsError('forbidden', 'write access to the repo is required');
+    if (access.outcome === 'denied') throw new OpsError('forbidden', authorize ? 'access denied' : 'write access to the repo is required');
     return access.login;
   };
 
