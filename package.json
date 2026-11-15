@@ -11,9 +11,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "build": "tsc -p tsconfig.build.json && pnpm -C packages/log build",
+    "build": "tsc -p tsconfig.build.json && pnpm -C packages/log build && pnpm -C packages/ops build",
     "test": "vitest run",
-    "typecheck": "tsc && tsc -p packages/log"
+    "typecheck": "tsc && tsc -p packages/log && tsc -p packages/ops"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
