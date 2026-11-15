@@ -51,7 +51,7 @@ describe('list_projects', () => {
 
 describe('check_access', () => {
   it('asks the API with the user token and returns its answer', async () => {
-    const body = { project: 'ads', repo: 'ideaSquared/adopt-dont-shop', login: 'octocat', access: 'write' };
+    const body = { project: 'ads', team: 'ideaSquared/adoptdontshop', login: 'octocat', access: 'member' };
     const { value, requests } = api({ '/v1/access/ads': { status: 200, body } });
     const result = await callTool('check_access', { project: 'ads' }, value);
     expect(result.isError).toBeUndefined();
@@ -60,10 +60,10 @@ describe('check_access', () => {
   });
 
   it('returns a 403 as a tool error with the reason', async () => {
-    const { value } = api({ '/v1/access/ads': { status: 403, body: { error: 'You need write access to ideaSquared/adopt-dont-shop' } } });
+    const { value } = api({ '/v1/access/ads': { status: 403, body: { error: 'You need to be in the ideaSquared/adoptdontshop team' } } });
     const result = await callTool('check_access', { project: 'ads' }, value);
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toBe('You need write access to ideaSquared/adopt-dont-shop');
+    expect(textOf(result)).toBe('You need to be in the ideaSquared/adoptdontshop team');
   });
 
   it('returns a 401 as a tool error with the reason', async () => {
@@ -250,10 +250,10 @@ describe('MCP server', () => {
   });
 
   it('returns an API refusal as a tool error through the protocol', async () => {
-    const { value } = api({ '/v1/logs/pairflix': { status: 403, body: { error: 'You need write access to ideaSquared/pairflix' } } });
+    const { value } = api({ '/v1/logs/pairflix': { status: 403, body: { error: 'You need to be in the ideaSquared/pairflix team' } } });
     const client = await connect(value);
     const result = await client.callTool({ name: 'get_logs', arguments: { project: 'pairflix' } });
     expect(result.isError).toBe(true);
-    expect(result.content).toEqual([{ type: 'text', text: 'You need write access to ideaSquared/pairflix' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'You need to be in the ideaSquared/pairflix team' }]);
   });
 });

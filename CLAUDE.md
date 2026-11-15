@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Agent Idea: sanitised logs for every ideaSquared product, gated by GitHub write access, plus the shared logger
+Agent Idea: sanitised logs for every ideaSquared product, gated by GitHub team membership, plus the shared logger
 `@ideasquared/log` (`packages/log`). Read `README.md` and `packages/log/README.md` first.
 
 ## Logging

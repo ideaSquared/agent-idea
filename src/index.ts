@@ -1,7 +1,7 @@
 import { createLogger } from '@ideasquared/log';
 import { z } from 'zod';
-import { cachedWriteAccess } from './access.ts';
-import { ENVIRONMENTS, noEnvironments, notReachable, PROJECTS, type Environment, type Project } from './projects.ts';
+import { cachedTeamMembership } from './access.ts';
+import { ENVIRONMENTS, noEnvironments, notReachable, ORG, PROJECTS, type Environment, type Project } from './projects.ts';
 import { routeRules, type RouteRules } from './route-words.ts';
 import { sanitiseEvent, scrubText, templateRoute, type SanitisedEvent } from './sanitise.ts';
 import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
@@ -247,16 +247,16 @@ export default {
     const token = bearer(request);
     if (!token) return json({ error: 'Sign in with gh auth login' }, 401);
 
-    const access = await cachedWriteAccess(token, project.repo, env.ACCESS_CACHE, fetch);
+    const access = await cachedTeamMembership(token, { org: ORG, team: project.team }, env.ACCESS_CACHE, fetch);
     const login = access.outcome === 'unauthenticated' ? undefined : access.login;
     audit({ login, project: name, route, outcome: access.outcome });
     if (access.outcome === 'unauthenticated') return json({ error: 'GitHub did not accept that token' }, 401);
-    if (access.outcome === 'denied') return json({ error: `You need write access to ${project.repo}` }, 403);
+    if (access.outcome === 'denied') return json({ error: `You need to be in the ${ORG}/${project.team} team` }, 403);
 
     if (route === 'logs') return logs(url, name, project, env, key);
     if (route === 'runs' && runId !== undefined) return run(url, name, project, token, Number(runId), key);
     if (route === 'runs') return runs(url, name, project, token, key);
     if (route === 'errors') return errors(url, name, project, env, key);
-    return json({ project: name, repo: project.repo, login: access.login, access: 'write' });
+    return json({ project: name, team: `${ORG}/${project.team}`, login: access.login, access: 'member' });
   },
 } satisfies ExportedHandler<Env>;

@@ -76,8 +76,8 @@ describe('idea logs', () => {
   });
 
   it("shows the API's reason when access is refused", async () => {
-    const { value } = deps({ '/v1/logs/pairflix': { status: 403, body: { error: 'You need write access to ideaSquared/pairflix' } } });
-    await expect(run(['logs', 'pairflix'], value)).rejects.toThrow('You need write access to ideaSquared/pairflix');
+    const { value } = deps({ '/v1/logs/pairflix': { status: 403, body: { error: 'You need to be in the ideaSquared/pairflix team' } } });
+    await expect(run(['logs', 'pairflix'], value)).rejects.toThrow('You need to be in the ideaSquared/pairflix team');
   });
 
   it('asks you to sign in when there is no token', async () => {
@@ -87,12 +87,12 @@ describe('idea logs', () => {
 });
 
 describe('idea access', () => {
-  it('confirms write access', async () => {
+  it('confirms team membership', async () => {
     const { value, lines } = deps({
-      '/v1/access/ads': { status: 200, body: { login: 'octocat', repo: 'ideaSquared/adopt-dont-shop' } },
+      '/v1/access/ads': { status: 200, body: { login: 'octocat', team: 'ideaSquared/adoptdontshop' } },
     });
     await run(['access', 'ads'], value);
-    expect(lines).toEqual(['octocat has write access to ideaSquared/adopt-dont-shop.']);
+    expect(lines).toEqual(['octocat is in the ideaSquared/adoptdontshop team.']);
   });
 });
 

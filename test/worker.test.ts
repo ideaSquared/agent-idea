@@ -10,6 +10,9 @@ const env = (overrides: Partial<Env> = {}): Env => ({
   ...overrides,
 });
 
+const TEAM = (team: string): string => `/orgs/ideaSquared/teams/${team}/memberships/octocat`;
+const member = (active: boolean) => ({ status: 200, body: { state: active ? 'active' : 'pending' } });
+
 const LOGS_PATH = '/client/v4/accounts/acc/workers/observability/telemetry/query';
 
 function request(path: string, token?: string): Request {
@@ -21,7 +24,7 @@ function request(path: string, token?: string): Request {
 function stubGitHub(push: boolean, cloudflareEvents: unknown[] = []) {
   const stub = fakeGitHub({
     '/user': { status: 200, body: { login: 'octocat' } },
-    '/repos/ideaSquared/pairflix': { status: 200, body: { permissions: { push, admin: false } } },
+    [TEAM('pairflix')]: member(push),
     [LOGS_PATH]: { status: 200, body: { success: true, result: { events: { events: cloudflareEvents } } } },
   });
   vi.stubGlobal('fetch', stub.fetcher);
@@ -31,22 +34,75 @@ function stubGitHub(push: boolean, cloudflareEvents: unknown[] = []) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('GET /v1/access/:project', () => {
-  it('confirms write access', async () => {
+  it('confirms team membership', async () => {
     stubGitHub(true);
     const response = await worker.fetch(request('/v1/access/pairflix', 't'), env());
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       project: 'pairflix',
-      repo: 'ideaSquared/pairflix',
+      team: 'ideaSquared/pairflix',
       login: 'octocat',
-      access: 'write',
+      access: 'member',
     });
   });
 
-  it('refuses without write access', async () => {
+  it('refuses a pending membership, naming the team and nothing personal', async () => {
     stubGitHub(false);
-    const response = await worker.fetch(request('/v1/access/pairflix', 't'), env());
+    const response = await worker.fetch(request('/v1/access/pairflix', 'secret-token'), env());
     expect(response.status).toBe(403);
+    const text = await response.text();
+    expect(JSON.parse(text)).toEqual({ error: 'You need to be in the ideaSquared/pairflix team' });
+    ['octocat', 'secret-token'].forEach((leak) => expect(text).not.toContain(leak));
+  });
+
+  it('refuses a non-member (404 from GitHub)', async () => {
+    vi.stubGlobal('fetch', fakeGitHub({ '/user': { status: 200, body: { login: 'octocat' } } }).fetcher);
+    const response = await worker.fetch(request('/v1/access/creatrgrid', 't'), env());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'You need to be in the ideaSquared/creatrgrid team' });
+  });
+
+  it('answers 401 for a token GitHub rejects', async () => {
+    vi.stubGlobal('fetch', fakeGitHub({ '/user': { status: 401 } }).fetcher);
+    const response = await worker.fetch(request('/v1/access/pairflix', 'bad'), env());
+    expect(response.status).toBe(401);
+  });
+
+  it('answers from the cache without calling GitHub', async () => {
+    const cache = fakeKv();
+    const first = stubGitHub(true);
+    await worker.fetch(request('/v1/access/pairflix', 't'), env({ ACCESS_CACHE: cache }));
+    expect(first.calls).toHaveLength(2);
+    const second = stubGitHub(true);
+    const response = await worker.fetch(request('/v1/access/pairflix', 't'), env({ ACCESS_CACHE: cache }));
+    expect(response.status).toBe(200);
+    expect(second.calls).toHaveLength(0);
+  });
+
+  it('ignores an old repo-keyed cache entry', async () => {
+    const cache = fakeKv();
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('t'));
+    const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    cache.store.set(`access:${hash}:ideaSquared/pairflix`, JSON.stringify({ outcome: 'allowed', login: 'octocat' }));
+    stubGitHub(false);
+    const response = await worker.fetch(request('/v1/access/pairflix', 't'), env({ ACCESS_CACHE: cache }));
+    expect(response.status).toBe(403);
+  });
+
+  it.each([
+    ['ads', 'adoptdontshop'],
+    ['creatrgrid', 'creatrgrid'],
+    ['pairflix', 'pairflix'],
+    ['gaminginit', 'gaminginit'],
+    ['gaminginit-bot', 'gaminginit'],
+    ['ideasquared-bot', 'ops-platform'],
+  ])('checks %s against the %s team', async (project, team) => {
+    const { calls } = stubGitHub(true);
+    vi.stubGlobal('fetch', fakeGitHub({ '/user': { status: 200, body: { login: 'octocat' } }, [TEAM(team)]: member(true) }).fetcher);
+    const response = await worker.fetch(request(`/v1/access/${project}`, 't'), env());
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { team: string }).team).toBe(`ideaSquared/${team}`);
+    expect(calls).toHaveLength(0);
   });
 
   it('asks for a sign-in when there is no token', async () => {
@@ -118,7 +174,7 @@ describe('GET /v1/logs/:project', () => {
     expect(((await visible.json()) as { events: unknown[] }).events).toHaveLength(1);
   });
 
-  it('refuses without write access, before asking Cloudflare', async () => {
+  it('refuses without team membership, before asking Cloudflare', async () => {
     const { calls } = stubGitHub(false, [event]);
     const response = await worker.fetch(request('/v1/logs/pairflix', 't'), env());
     expect(response.status).toBe(403);
@@ -146,7 +202,8 @@ describe('GET /v1/runs/:project', () => {
     const signed = 'https://pipelines.example.net/logs/10?sig=abc';
     const routes: Record<string, { status: number; body?: unknown; text?: string; location?: string }> = {
       '/user': { status: 200, body: { login: 'octocat' } },
-      '/repos/ideaSquared/pairflix': { status: 200, body: { permissions: { push, admin: false }, default_branch: 'master' } },
+      [TEAM('pairflix')]: member(push),
+      '/repos/ideaSquared/pairflix': { status: 200, body: { default_branch: 'master' } },
       '/repos/ideaSquared/pairflix/actions/runs': {
         status: 200,
         body: { workflow_runs: [{ id: 5, run_number: 9, name: workflowName, event: 'push', status: 'completed', conclusion: 'failure', head_branch: 'master', head_sha: '1234567abcdef', created_at: '2026-11-14T20:00:00Z', html_url: 'https://github.com/ideaSquared/pairflix/actions/runs/5' }] },
@@ -194,7 +251,7 @@ describe('GET /v1/runs/:project', () => {
     ['alex@example.com', 'ghp_', '3f2b8c1e'].forEach((leak) => expect(log).not.toContain(leak));
   });
 
-  it('refuses without write access, before asking for runs', async () => {
+  it('refuses without team membership, before asking for runs', async () => {
     const calls = stubRuns(false);
     const response = await worker.fetch(request('/v1/runs/pairflix', 't'), env());
     expect(response.status).toBe(403);
@@ -243,8 +300,8 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
   function stubAds(push: boolean, { lines = [adsLogLine()], issues = [glitchTipIssue()], lokiStatus = 200, event = glitchTipEvent() as unknown } = {}) {
     const stub = fakeHttp({
       '/user': { status: 200, body: { login: 'octocat' } },
-      '/repos/ideaSquared/adopt-dont-shop': { status: 200, body: { permissions: { push, admin: false } } },
-      '/repos/ideaSquared/pairflix': { status: 200, body: { permissions: { push, admin: false } } },
+      [TEAM('adoptdontshop')]: member(push),
+      [TEAM('pairflix')]: member(push),
       '/loki/api/v1/query_range': { status: lokiStatus, body: lokiBody(lines.map((line, i) => [`179467870${i}000000000`, line] as const)) },
       '/api/0/projects/ideasquared/ads-staging/issues/': { status: 200, body: issues },
       '/api/0/issues/42/events/latest/': { status: 200, body: event },
@@ -296,7 +353,7 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
       expect(calls.some((call) => call.url.includes('loki'))).toBe(false);
     });
 
-    it('refuses without write access, before asking Loki', async () => {
+    it('refuses without team membership, before asking Loki', async () => {
       const { calls } = stubAds(false);
       const response = await worker.fetch(request('/v1/logs/ads', 't'), adsEnv());
       expect(response.status).toBe(403);
@@ -386,7 +443,7 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
       expect(await response.json()).toEqual({ error: 'No error tracker for pairflix' });
     });
 
-    it('refuses without write access, before asking GlitchTip', async () => {
+    it('refuses without team membership, before asking GlitchTip', async () => {
       const { calls } = stubAds(false);
       const response = await worker.fetch(request('/v1/errors/ads', 't'), adsEnv());
       expect(response.status).toBe(403);
@@ -424,13 +481,13 @@ describe('--env on /v1/logs and /v1/errors', () => {
   });
 
   function stub() {
-    const write = { status: 200, body: { permissions: { push: true, admin: false } } };
+    const write = member(true);
     const http = fakeHttp({
       '/user': { status: 200, body: { login: 'octocat' } },
-      '/repos/ideaSquared/pairflix': write,
-      '/repos/ideaSquared/creatrgrid': write,
-      '/repos/ideaSquared/gaminginit': write,
-      '/repos/ideaSquared/adopt-dont-shop': write,
+      [TEAM('pairflix')]: write,
+      [TEAM('creatrgrid')]: write,
+      [TEAM('gaminginit')]: write,
+      [TEAM('adoptdontshop')]: write,
       [LOGS_PATH]: { status: 200, body: { success: true, result: { events: { events: [] } } } },
       '/loki/api/v1/query_range': { status: 200, body: lokiBody([]) },
       '/api/0/projects/ideasquared/ads-staging/issues/': { status: 200, body: [] },

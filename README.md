@@ -1,11 +1,11 @@
 # Agent Idea
 
 Sanitised logs for every ideaSquared product, for people and for LLMs. Nothing personal leaves it, and you only
-see a product's logs if your GitHub login has **write access** to its repo.
+see a product's logs if your GitHub login is an active member of the project's **GitHub team**.
 
 ```
 idea CLI ──(your gh token)──▶ Agent Idea API (Cloudflare Worker)
-                                 1. ask GitHub, with your token, whether you can write to the repo
+                                 1. ask GitHub, with your token, whether you are in the project's team
                                  2. fetch logs (Cloudflare Workers Logs, Loki, GlitchTip, GitHub Actions)
                                  3. sanitise: allowlist fields, scrub text, tag ids
                                  4. return only sanitised data
@@ -30,7 +30,7 @@ idea runs pairflix --failed                   # recent failed GitHub Actions run
 idea run pairflix 43639019850                 # that run's jobs, and the sanitised log of each failed job
 idea logs ads --level error                   # adopt-dont-shop staging, from Loki
 idea errors ads --frames                      # adopt-dont-shop's top unresolved errors, with stack frames
-idea access ads                               # check you have write access
+idea access ads                               # check you are in the project's team
 ```
 
 - `--since` is in hours, up to 168 (Workers Logs keeps 7 days). `--limit` is up to 200, default 50.
@@ -53,7 +53,7 @@ idea access ads                               # check you have write access
 
 `idea mcp` runs a local [MCP](https://modelcontextprotocol.io) server over stdio, so Claude Code (or any MCP client)
 can read sanitised logs as tools, signed in as you. It talks only to the Agent Idea API, never to a log source, so
-the write-access check and the sanitiser still run on the server and Claude only ever sees sanitised data.
+the team check and the sanitiser still run on the server and Claude only ever sees sanitised data.
 
 Register it with Claude Code once, for all your projects:
 
@@ -80,7 +80,7 @@ Or add it to a repo's `.mcp.json`:
 | `get_run` | `GET /v1/runs/:project/:runId` | `project`, `run_id`, `tail` (max 300) |
 | `get_errors` | `GET /v1/errors/:project` | `project` (ads only), `env`, `limit` (max 25), `frames` |
 
-- Each tool returns the API's JSON. A refusal (`401` no or bad token, `403` no write access) or a network failure comes
+- Each tool returns the API's JSON. A refusal (`401` no or bad token, `403` not in the team) or a network failure comes
   back as a tool error with a plain message.
 - It reads your token once, at start-up (`GH_TOKEN`, `GITHUB_TOKEN` or `gh auth token`). If you sign in later, restart
   the server (`/mcp` in Claude Code). `AGENT_IDEA_URL` works as for the CLI.
@@ -90,9 +90,15 @@ Or add it to a repo's `.mcp.json`:
 ## Access
 
 - Every request carries a GitHub token: `Authorization: Bearer <token>`. The CLI will read it from `gh auth token`.
-- The Worker calls GitHub's `/user` and `/repos/{owner}/{repo}` **with that token** and allows the request only if
-  `permissions` has `push`, `maintain` or `admin`. Read access is not enough, because anyone can read a public repo.
-- The answer is cached in KV for 5 minutes under a SHA-256 of the token. The token itself is never stored or logged.
+- The Worker calls GitHub's `/user` and `/orgs/ideaSquared/teams/{team}/memberships/{login}` **with that token** and
+  allows the request only if the membership `state` is `active`. A pending invitation, a 404 or any other state is a
+  `403` that names the team (`You need to be in the ideaSquared/<team> team`).
+- `gh auth token` needs the `read:org` scope to read team membership; `gh auth login` grants it by default. If you
+  signed in with a narrower token, run `gh auth refresh -s read:org`.
+- Each project has one team: ads `adoptdontshop`, creatrgrid `creatrgrid`, pairflix `pairflix`, gaminginit and
+  gaminginit-bot `gaminginit`, ideasquared-bot `ops-platform` (see [`src/projects.ts`](src/projects.ts)).
+- The answer is cached in KV for 5 minutes under a SHA-256 of the token and the team, with a `team-access:` key prefix
+  so an entry from the old repo check can never grant access. The token itself is never stored or logged.
 - Every request logs one audit line: GitHub login, project, route and outcome. Never the results.
 
 Products, their repos and their Worker scripts are in [`src/projects.ts`](src/projects.ts).
@@ -134,7 +140,7 @@ emails are never written in the first place. The sanitiser is the safety net, no
 | Cloudflare Workers Logs | creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix | Workers Observability telemetry query API, filtered to the project's Worker scripts. Only the timestamp, level, service, path, status, wall time and message are read; Cloudflare's client IP, location, headers and TLS details are never touched. |
 | Loki | ads | adopt-dont-shop staging's Loki, reached through a Cloudflare Tunnel behind Cloudflare Access (see [Phase 4](#phase-4-adopt-dont-shop)). A LogQL `query_range` selects by the `service`, `level` and (with `--env staging`) `env` labels only, with no line filter. From each `@ideasquared/log` JSON line only the timestamp, level, service, message, `meta.route`, `meta.status`, `meta.durationMs`, the error type and the stack's `at` lines are read; other meta fields and the error message are never touched. |
 | GlitchTip | ads | adopt-dont-shop's GlitchTip (Sentry API), through the same tunnel. The project's unresolved issues: short id, scrubbed title and culprit, count, first and last seen, level. Optionally the latest event's stack frames as `file:line`. Never the permalink, event bodies, exception values, request data, user, tags, breadcrumbs or source context. |
-| GitHub Actions | all | GitHub's API, called with **your own** token (the one that passed the write-access check), so no extra secret. Runs list the workflow, event, result, short commit and time; the branch only when it is the default branch, and never the commit message, PR title or who triggered it. A run's failed jobs come with the last lines of their log (80 by default, `--tail` up to 300), each line sanitised like any log message. |
+| GitHub Actions | all | GitHub's API, called with **your own** token (the one that passed the team check), so no extra secret. Runs list the workflow, event, result, short commit and time; the branch only when it is the default branch, and never the commit message, PR title or who triggered it. A run's failed jobs come with the last lines of their log (80 by default, `--tail` up to 300), each line sanitised like any log message. |
 
 ## Phase 4: adopt-dont-shop
 
@@ -158,7 +164,7 @@ GlitchTip token, and the Worker's secrets and vars) is in [docs/ads-tunnel.md](d
 | Route | What |
 | --- | --- |
 | `GET /health` | `{ "ok": true }`, no token needed |
-| `GET /v1/access/:project` | `200` with your login if you can write to the project's repo; `401` with no or a bad token, `403` without write access, `404` for an unknown project |
+| `GET /v1/access/:project` | `200` with your login and team if you are in the project's team; `401` with no or a bad token, `403` when not in the team, `404` for an unknown project |
 | `GET /v1/logs/:project` | `{ "events": [...], "scanned": n }`, sanitised, newest first. Query: `since` (hours, default 1, max 168), `level`, `env` (`staging` or `production`; `400` naming the project if it cannot tell environments apart, or for ads `production`, which is not behind the tunnel), `search` (matched against sanitised events), `limit` (default 50, max 200). Same `401`/`403`/`404`, plus `400` for a bad query |
 | `GET /v1/errors/:project` | `{ "issues": [...] }`, the busiest unresolved errors first. Query: `env` (as for logs: ads serves `staging` only, `production` is a `400`), `limit` (default 10, max 25), `frames=true` for each issue's latest stack frames. `404` for a project with no error tracker (only `ads` has one), `501` while GlitchTip is not configured, `502` if it can't be reached |
 | `GET /v1/runs/:project` | `{ "runs": [...] }`, newest first. Query: `limit` (default 10, max 50), `failed=true` |
