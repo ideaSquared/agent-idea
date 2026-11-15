@@ -36,6 +36,16 @@ importers:
 
   packages/log: {}
 
+  packages/ops:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.7
+    devDependencies:
+      '@ideasquared/log':
+        specifier: workspace:*
+        version: link:../log
+
 packages:
 
   '@cloudflare/kv-asset-handler@0.5.0':
