@@ -10,7 +10,7 @@ export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
   idea mcp                                                    MCP server over stdio, for Claude Code
 
 Projects: ${PROJECT_NAMES.join(', ')}.
-You need write access to the project's repo. Sign-in: GH_TOKEN, GITHUB_TOKEN or your gh login.
+You need to be in the project's GitHub team. Sign-in: GH_TOKEN, GITHUB_TOKEN or your gh login.
 API: AGENT_IDEA_URL (default https://agent-idea.idea-squared.workers.dev).`;
 // One line per event: time, level, service, the request, then the message.
 export function formatEvent(event) {
@@ -71,7 +71,7 @@ export async function run(argv, deps) {
         throw new Error(`Which project?\n\n${USAGE}`);
     if (command === 'access') {
         const body = (await call(deps, `/v1/access/${encodeURIComponent(project)}`));
-        return deps.out(`${body.login} has write access to ${body.repo}.`);
+        return deps.out(`${body.login} is in the ${body.team} team.`);
     }
     if (values.env !== undefined && !ENVIRONMENTS.some((environment) => environment === values.env)) {
         throw new Error(`--env must be staging or production, not '${values.env}'.\n\n${USAGE}`);

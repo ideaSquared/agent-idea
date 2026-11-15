@@ -1,77 +1,87 @@
 import { describe, expect, it } from 'vitest';
-import { cachedWriteAccess, checkWriteAccess } from '../src/access.ts';
+import { cachedTeamMembership, checkTeamMembership } from '../src/access.ts';
 import { fakeGitHub, fakeKv } from './fakes.ts';
 
-const REPO = 'ideaSquared/creatrgrid';
+const TEAM = { org: 'ideaSquared', team: 'creatrgrid' };
+const PATH = '/orgs/ideaSquared/teams/creatrgrid/memberships/octocat';
 const user = { status: 200, body: { login: 'octocat' } };
-const repoWith = (permissions: Record<string, boolean>) => ({ status: 200, body: { permissions } });
 
-describe('checkWriteAccess', () => {
-  it('allows a user with push access', async () => {
-    const { fetcher } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ push: true, admin: false }) });
-    expect(await checkWriteAccess('t', REPO, fetcher)).toEqual({ outcome: 'allowed', login: 'octocat' });
+describe('checkTeamMembership', () => {
+  it('allows an active member', async () => {
+    const { fetcher } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
+    expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'allowed', login: 'octocat' });
   });
 
-  it('allows maintainers and admins', async () => {
-    const maintain = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ push: false, maintain: true, admin: false }) });
-    const admin = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ push: false, admin: true }) });
-    expect((await checkWriteAccess('t', REPO, maintain.fetcher)).outcome).toBe('allowed');
-    expect((await checkWriteAccess('t', REPO, admin.fetcher)).outcome).toBe('allowed');
+  it('denies a pending membership', async () => {
+    const { fetcher } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'pending' } } });
+    expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
   });
 
-  it('denies read-only access, as on a public repo', async () => {
-    const { fetcher } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ pull: true, push: false, admin: false }) });
-    expect(await checkWriteAccess('t', REPO, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
-  });
-
-  it('denies when GitHub returns no permissions', async () => {
-    const { fetcher } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: { status: 200, body: {} } });
-    expect((await checkWriteAccess('t', REPO, fetcher)).outcome).toBe('denied');
-  });
-
-  it('denies a repo the user cannot see', async () => {
+  it('denies a non-member (404)', async () => {
     const { fetcher } = fakeGitHub({ '/user': user });
-    expect((await checkWriteAccess('t', REPO, fetcher)).outcome).toBe('denied');
+    expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
   });
 
   it('reports a token GitHub rejects as unauthenticated', async () => {
     const { fetcher } = fakeGitHub({ '/user': { status: 401 } });
-    expect(await checkWriteAccess('t', REPO, fetcher)).toEqual({ outcome: 'unauthenticated' });
+    expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'unauthenticated' });
+  });
+
+  it('reports a token rejected on the membership call as unauthenticated', async () => {
+    const { fetcher } = fakeGitHub({ '/user': user, [PATH]: { status: 401 } });
+    expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'unauthenticated' });
   });
 
   it("asks GitHub with the caller's own token", async () => {
-    const { fetcher, calls } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ push: true, admin: false }) });
-    await checkWriteAccess('callers-token', REPO, fetcher);
+    const { fetcher, calls } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
+    await checkTeamMembership('callers-token', TEAM, fetcher);
     expect(calls.map((call) => call.authorization)).toEqual(['Bearer callers-token', 'Bearer callers-token']);
   });
 
   it('throws when GitHub is failing, rather than guessing', async () => {
-    const { fetcher } = fakeGitHub({ '/user': { status: 502 } });
-    await expect(checkWriteAccess('t', REPO, fetcher)).rejects.toThrow();
+    const user502 = fakeGitHub({ '/user': { status: 502 } });
+    await expect(checkTeamMembership('t', TEAM, user502.fetcher)).rejects.toThrow();
+    const team500 = fakeGitHub({ '/user': user, [PATH]: { status: 500 } });
+    await expect(checkTeamMembership('t', TEAM, team500.fetcher)).rejects.toThrow();
+  });
+
+  it('refuses a malformed org or team before calling GitHub', async () => {
+    const { fetcher, calls } = fakeGitHub({ '/user': user });
+    await expect(checkTeamMembership('t', { org: 'ideaSquared', team: '../x' }, fetcher)).rejects.toThrow();
+    await expect(checkTeamMembership('t', { org: 'a/b', team: 'ok' }, fetcher)).rejects.toThrow();
+    expect(calls).toHaveLength(0);
   });
 });
 
-describe('cachedWriteAccess', () => {
+describe('cachedTeamMembership', () => {
   it('asks GitHub once, then answers from the cache', async () => {
     const kv = fakeKv();
-    const { fetcher, calls } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ push: true, admin: false }) });
-    await cachedWriteAccess('t', REPO, kv, fetcher);
-    expect(await cachedWriteAccess('t', REPO, kv, fetcher)).toEqual({ outcome: 'allowed', login: 'octocat' });
+    const { fetcher, calls } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
+    await cachedTeamMembership('t', TEAM, kv, fetcher);
+    expect(await cachedTeamMembership('t', TEAM, kv, fetcher)).toEqual({ outcome: 'allowed', login: 'octocat' });
     expect(calls).toHaveLength(2);
+  });
+
+  it('keeps teams apart', async () => {
+    const kv = fakeKv();
+    const { fetcher, calls } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
+    await cachedTeamMembership('t', TEAM, kv, fetcher);
+    const other = await cachedTeamMembership('t', { org: 'ideaSquared', team: 'pairflix' }, kv, fetcher);
+    expect(other.outcome).toBe('denied');
+    expect(calls).toHaveLength(4);
   });
 
   it('never stores the token', async () => {
     const kv = fakeKv();
-    const { fetcher } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ push: true, admin: false }) });
-    await cachedWriteAccess('very-secret-token', REPO, kv, fetcher);
-    const everything = JSON.stringify([...kv.store.entries()]);
-    expect(everything).not.toContain('very-secret-token');
+    const { fetcher } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
+    await cachedTeamMembership('very-secret-token', TEAM, kv, fetcher);
+    expect(JSON.stringify([...kv.store.entries()])).not.toContain('very-secret-token');
   });
 
   it('does not cache a rejected token', async () => {
     const kv = fakeKv();
     const { fetcher } = fakeGitHub({ '/user': { status: 401 } });
-    await cachedWriteAccess('t', REPO, kv, fetcher);
+    await cachedTeamMembership('t', TEAM, kv, fetcher);
     expect(kv.store.size).toBe(0);
   });
 });

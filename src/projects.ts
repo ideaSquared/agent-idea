@@ -2,7 +2,9 @@ export const ENVIRONMENTS = ['staging', 'production'] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
 
 export type Project = {
-  // Write access to this repo unlocks the project's logs.
+  // Active membership of this team in the ideaSquared org unlocks the project's logs, errors and runs.
+  team: string;
+  // The project's repo, whose GitHub Actions runs are read with the caller's token.
   repo: string;
   // Cloudflare Worker script names whose Workers Logs belong to the project.
   workers: readonly string[];
@@ -30,11 +32,15 @@ export function notReachable(name: string, environment: Environment): string {
   return `The ${environment} logs and errors for '${name}' are not reachable through Agent Idea yet: only the staging server's Loki and GlitchTip are behind the tunnel`;
 }
 
+// The GitHub org that owns every project's team.
+export const ORG = 'ideaSquared';
+
 export const PROJECTS: Readonly<Record<string, Project>> = {
   // ADS's Loki `env` label and GlitchTip `environment` carry DEPLOY_ENV (staging | production). Only the staging
   // server's Loki and GlitchTip are behind the tunnel (docs/ads-tunnel.md), so only `--env staging` is served.
-  ads: { repo: 'ideaSquared/adopt-dont-shop', workers: [], logs: 'loki', errors: 'glitchtip', reachable: 'staging' },
+  ads: { team: 'adoptdontshop', repo: 'ideaSquared/adopt-dont-shop', workers: [], logs: 'loki', errors: 'glitchtip', reachable: 'staging' },
   creatrgrid: {
+    team: 'creatrgrid',
     repo: 'ideaSquared/creatrgrid',
     workers: [
       'creatorgrid-api',
@@ -52,10 +58,11 @@ export const PROJECTS: Readonly<Record<string, Project>> = {
       production: ['creatorgrid-api', 'creatorgrid-web', 'creatorgrid-dashboard', 'creatorgrid-admin'],
     },
   },
-  gaminginit: { repo: 'ideaSquared/gaminginit', workers: ['wardogs-community-site'] },
-  'gaminginit-bot': { repo: 'ideaSquared/gaminginit-bot', workers: ['wardogs-discord-bot'] },
-  'ideasquared-bot': { repo: 'ideaSquared/ideasquared-bot', workers: ['ideasquared-bot'] },
+  gaminginit: { team: 'gaminginit', repo: 'ideaSquared/gaminginit', workers: ['wardogs-community-site'] },
+  'gaminginit-bot': { team: 'gaminginit', repo: 'ideaSquared/gaminginit-bot', workers: ['wardogs-discord-bot'] },
+  'ideasquared-bot': { team: 'ops-platform', repo: 'ideaSquared/ideasquared-bot', workers: ['ideasquared-bot'] },
   pairflix: {
+    team: 'pairflix',
     repo: 'ideaSquared/pairflix',
     workers: ['pairflix-api', 'pairflix-api-staging', 'pairflix-api-production', 'pairflix-client', 'pairflix-admin'],
     // Only Workers whose name says the environment. pairflix-api, -client and -admin are ambiguous, so they are

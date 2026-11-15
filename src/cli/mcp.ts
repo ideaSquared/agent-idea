@@ -61,7 +61,7 @@ const env = z
 const path = (route: string, name: string): string => `/v1/${route}/${encodeURIComponent(name)}`;
 
 const ACCESS_NOTE =
-  'You only get data for a project if the signed-in GitHub user has write access to its repo; otherwise the tool returns an error saying so. ' +
+  'You only get data for a project if the signed-in GitHub user is an active member of the GitHub team for that project; otherwise the tool returns an error saying so. ' +
   'Everything returned has already been sanitised by the Agent Idea API: personal data and secrets are removed and ids are replaced with stable pseudonyms such as id_1a2b3c4d.';
 
 // Add a tool here to expose a new API route.
@@ -74,7 +74,7 @@ export const TOOLS: readonly Tool[] = [
   }),
   tool({
     name: 'check_access',
-    description: `Checks whether the signed-in GitHub user has write access to a project's repo. Returns { project, repo, login, access: "write" } on success. ${ACCESS_NOTE}`,
+    description: `Checks whether the signed-in GitHub user is an active member of a project's GitHub team. Returns { project, team, login, access: "member" } on success. ${ACCESS_NOTE}`,
     input: { project },
     run: (args, api) => call(api, path('access', args.project)),
   }),

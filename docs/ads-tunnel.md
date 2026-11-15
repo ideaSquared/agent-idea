@@ -128,7 +128,7 @@ idea errors ads --frames --limit 5   # with the latest event's stack frames, fil
 | --- | --- |
 | `ADS logs are not configured` / `ADS errors are not configured` (501) | A var is empty or a secret is missing. Logs need `ADS_LOKI_URL` and both Access secrets; errors need the GlitchTip URL, org, project and token, and both Access secrets. |
 | `Loki could not be read` / `GlitchTip could not be read` (502) | The Worker got through to Cloudflare but not to the service: the tunnel is down, Access rejected the service token (check the policy is Service Auth for `agent-idea`), the GlitchTip token or slugs are wrong, or the service is down. Run the `curl` checks above. |
-| `You need write access to ideaSquared/adopt-dont-shop` (403) | Your GitHub login cannot write to the repo. |
+| `You need to be in the ideaSquared/adoptdontshop team` (403) | Your GitHub login is not an active member of the project's team. |
 
 ## Rotating
 
