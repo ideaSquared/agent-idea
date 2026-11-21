@@ -78,14 +78,20 @@ function templateUrl(url: string, rules: RouteRules): string {
 // Fixed replacements, applied in order. Secrets first, so a token is never half-matched as something else.
 const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[jwt]'],
+  // The whole Authorization value whatever the scheme (Digest has several parameters): an escape-aware quoted
+  // string when serialised, otherwise to the end of the line. A Cookie header is redacted to the end of the line.
+  [/\bauthorization(["']?\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\r\n]*)/gi, 'authorization$1[redacted]'],
   [/\b(bearer|basic)\s+[\w.~+/=-]+/gi, '$1 [token]'],
-  [/\b(sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|xox[abposr]-|whsec_|rk_live_|pk_live_)[\w-]{8,}/g, '[key]'],
+  [/\bcookie(["']?\s*:\s*)[^\r\n]*/gi, 'cookie$1[redacted]'],
+  [/\b(sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|xox[abposr]-|whsec_|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|pk_test_)[\w-]{8,}/g, '[key]'],
   [/\bAKIA[0-9A-Z]{16}\b/g, '[key]'],
-  // Any key ending in one of these words, so refresh_token=, csrfToken: and "refreshToken":"…" are caught too.
-  [/\b([\w-]*?(?:api[_-]?key|token|secret|password|passwd|pwd|cookie|session))(["']?\s*[=:]\s*)["']?[^\s"',;&]+/gi, '$1$2[redacted]'],
+  // Any key whose name contains one of these words, so STRIPE_SECRET_KEY=, refresh_token=, csrfToken: and
+  // "refreshToken":"…" are caught too. A quoted value is redacted whole, spaces included.
+  [/\b([\w-]*(?:key|secret|token|password|passwd|pwd|credential|private|cookie|session)[\w-]*)(["']?\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|["']?[^\s"',;&]+)/gi, '$1$2[redacted]'],
   // Any userinfo in a URL: user:pass@, :pass@ (Redis) and a bare key@ (a Sentry or GlitchTip DSN).
   [/(\w+:\/\/)[^\s/?#@]+@/g, '$1[creds]@'],
-  [/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[email]'],
+  // Unicode local parts and domains; the @ may be URL-encoded as %40.
+  [/[\p{L}\p{M}\p{N}_.+-]+(?:@|%40)[\p{L}\p{M}\p{N}_-]+(?:\.[\p{L}\p{M}\p{N}_-]+)+/gu, '[email]'],
 ];
 
 const LATE_REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -102,7 +108,8 @@ const LATE_REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
 export async function scrubText(text: string, key: string, rules: RouteRules): Promise<string> {
   const redacted = REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text)
     .replace(/\b\w+:\/\/[^\s"'<>]+/g, (url) => templateUrl(url, rules))
-    .replace(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s"'<>]*)/g, (_, method: string, path: string) => `${method} ${templateRoute(path, rules)}`);
+    .replace(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s"'<>]*)/g, (_, method: string, path: string) => `${method} ${templateRoute(path, rules)}`)
+    .replace(/(\/[^\s"'<>?#]*)\?[^\s"'<>]+/g, '$1?[query]');
   const withIds = await replaceAsync(
     redacted,
     /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,

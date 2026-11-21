@@ -42,6 +42,32 @@ const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
   { line: 'sentry dsn http://3c2a1b9f8e7d6c5b@glitchtip-web:8080/1', leaks: ['3c2a1b9f8e7d6c5b'] },
   { line: 'Set-Cookie: sid=s%3Aabcdef; Path=/', leaks: ['s%3Aabcdef'] },
   { line: 'reset link https://ads.example/reset-password?token=abcd1234 sent', leaks: ['abcd1234'] },
+  // ENG-1504: shapes that used to pass through.
+  { line: 'charge failed with sk_live_abcdefghijklmnop1234', leaks: ['abcdefghijklmnop'] },
+  { line: 'charge failed with sk_test_abcdefghijklmnop1234', leaks: ['abcdefghijklmnop'] },
+  { line: 'restricted rk_test_abcdefghijklmnop1234 rejected', leaks: ['abcdefghijklmnop'] },
+  { line: 'publishable pk_test_abcdefghijklmnop1234 in bundle', leaks: ['abcdefghijklmnop'] },
+  { line: 'env STRIPE_SECRET_KEY=dummyvalue123 loaded', leaks: ['dummyvalue123'] },
+  { line: 'env AWS_SECRET_ACCESS_KEY=abc/def+ghi loaded', leaks: ['abc/def+ghi'] },
+  { line: 'env GITHUB_WEBHOOK_SECRET_ADS=hookvalue99 loaded', leaks: ['hookvalue99'] },
+  { line: 'env PSEUDONYM_KEY=pseudo-val-77 loaded', leaks: ['pseudo-val-77'] },
+  { line: 'config secret_key: s3kr1tvalue set', leaks: ['s3kr1tvalue'] },
+  { line: 'send to zoë@example.com failed', leaks: ['zoë', 'example.com'] },
+  { line: 'send to josé.garcia@example.com failed', leaks: ['josé', 'garcia', 'example.com'] },
+  { line: 'send to jo%40example.org failed', leaks: ['jo%40', 'example.org'] },
+  { line: 'Cookie: a=x1y2; refresh=rf9876; theme=dark', leaks: ['x1y2', 'rf9876', 'dark'] },
+  { line: 'Authorization: Token tk-abc-12345', leaks: ['tk-abc-12345'] },
+  { line: 'login password="correct horse battery" rejected', leaks: ['correct', 'horse', 'battery'] },
+  { line: "login password='correct horse battery' rejected", leaks: ['correct', 'horse', 'battery'] },
+  { line: 'redirected to /oauth/callback?code=zz77abc&state=q9', leaks: ['zz77abc', 'q9'] },
+  { line: 'Authorization: Digest username="alex", response="abcdefsecret"', leaks: ['alex', 'abcdefsecret'] },
+  {
+    line: JSON.stringify({ authorization: 'Digest username="alex", response="abcdefsecret"', status: 401 }),
+    leaks: ['alex', 'abcdefsecret'],
+  },
+  { line: JSON.stringify({ password: 'first"remainingsecret' }), leaks: ['first', 'remainingsecret'] },
+  { line: "login password='first\\'remainingsecret' rejected", leaks: ['first', 'remainingsecret'] },
+  { line: 'send to jose\u0301@example.com failed', leaks: ['jose', 'example.com'] },
 ];
 
 describe('scrubText', () => {
