@@ -117,8 +117,14 @@ describe('token expiry warning', () => {
     expect(lines).toEqual(['octocat is in the ideaSquared/adoptdontshop team.']);
   });
 
+  it('says "in less than a day" when the token expires within hours', async () => {
+    const { value, warnings } = deps(access('2027-11-01T12:00:00.000Z'));
+    await run(['access', 'ads'], value);
+    expect(warnings[0]).toContain('expires on 2027-11-01 (in less than a day)');
+  });
+
   it('stays quiet when the token has more than 30 days left, or never expires', async () => {
-    for (const expiresAt of ['2027-12-15T00:00:00.000Z', undefined]) {
+    for (const expiresAt of ['2027-12-01T12:00:00.000Z', '2027-12-15T00:00:00.000Z', undefined]) {
       const { value, warnings } = deps(access(expiresAt));
       await run(['access', 'ads'], value);
       expect(warnings).toEqual([]);

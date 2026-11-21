@@ -22,9 +22,10 @@ export function expiryWarning(expiresAt: string | null, now: Date): string | und
   if (!expiresAt) return undefined;
   const expires = new Date(expiresAt);
   if (Number.isNaN(expires.getTime())) return undefined;
-  const days = Math.floor((expires.getTime() - now.getTime()) / DAY_MS);
-  if (days > WARN_DAYS) return undefined;
-  const when = days <= 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`;
+  const remaining = expires.getTime() - now.getTime();
+  if (remaining > WARN_DAYS * DAY_MS) return undefined;
+  const days = Math.floor(remaining / DAY_MS);
+  const when = remaining <= 0 ? 'today' : days === 0 ? 'in less than a day' : `in ${days} day${days === 1 ? '' : 's'}`;
   return `Warning: your GitHub token expires on ${expires.toISOString().slice(0, 10)} (${when}). Create a new one and replace it where you set it (GH_TOKEN, gh auth login or the cloud environment secret).`;
 }
 
