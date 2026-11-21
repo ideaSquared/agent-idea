@@ -27,6 +27,13 @@ function github(token: string, fetcher: Fetch, path: string): Promise<Response> 
 
 export type TeamRef = { org: string; team: string };
 
+// GitHub also answers 403 for its primary (quota spent) and secondary rate limits. Those are temporary, so they must
+// never become a cached denial. A secondary limit may only say so in retry-after or the error message.
+async function rateLimited(response: Response): Promise<boolean> {
+  if (response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after')) return true;
+  return /rate limit/i.test(await response.text());
+}
+
 const EXPIRATION = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{4})$/;
 
 // GitHub's github-authentication-token-expiration header ("2027-11-21 13:20:00 UTC" or "... +0100") as ISO 8601.
@@ -42,7 +49,9 @@ export function tokenExpiry(header: string | null): string | undefined {
 
 // Membership of a GitHub team, read with the caller's own token, so GitHub decides. Only an active membership
 // allows: a pending invitation is denied. A 404 means not a member (GitHub also answers 404 when the token cannot
-// see the org's teams, which is a denial too). Any other unexpected status throws, and the handler answers 500.
+// see the org's teams, which is a denial too). A 403 that is not a rate limit is a token GitHub will not let read
+// the team (SAML SSO not authorised for it, or a fine-grained token without Members: read): also a denial. Any other
+// unexpected status throws, and the handler answers 500.
 export async function checkTeamMembership(token: string, { org, team }: TeamRef, fetcher: Fetch): Promise<Access> {
   if (!SLUG.test(org)) throw new Error('org must be a GitHub org slug');
   if (!SLUG.test(team)) throw new Error('team must be a GitHub team slug');
@@ -57,6 +66,9 @@ export async function checkTeamMembership(token: string, { org, team }: TeamRef,
   const response = await github(token, fetcher, path);
   if (response.status === 401) return { outcome: 'unauthenticated' };
   if (response.status === 404) return { outcome: 'denied', login, ...expiry };
+  if (response.status === 403 && !(await rateLimited(response))) {
+    return { outcome: 'denied', login, ...expiry };
+  }
   if (!response.ok) throw new Error(`GitHub team membership answered ${response.status}`);
   const { state } = MembershipSchema.parse(await response.json());
   return { outcome: state === 'active' ? 'allowed' : 'denied', login, ...expiry };

@@ -93,8 +93,9 @@ Or add it to a repo's `.mcp.json`:
 
 - Every request carries a GitHub token: `Authorization: Bearer <token>`. The CLI will read it from `gh auth token`.
 - The Worker calls GitHub's `/user` and `/orgs/ideaSquared/teams/{team}/memberships/{login}` **with that token** and
-  allows the request only if the membership `state` is `active`. A pending invitation, a 404 or any other state is a
-  `403` that names the team (`You need to be in the ideaSquared/<team> team`).
+  allows the request only if the membership `state` is `active`. A pending invitation, a 404, a 403 from GitHub (a
+  token not authorised for SSO, or a fine-grained token without the org Members: read permission) or any other state
+  is a `403` that names the team (`You need to be in the ideaSquared/<team> team`).
 - `gh auth token` needs the `read:org` scope to read team membership; `gh auth login` grants it by default. If you
   signed in with a narrower token, run `gh auth refresh -s read:org`.
 - Each project has one team: ads `adoptdontshop`, creatrgrid `creatrgrid`, pairflix `pairflix`, gaminginit and
