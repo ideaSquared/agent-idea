@@ -60,6 +60,14 @@ const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
   { line: 'login password="correct horse battery" rejected', leaks: ['correct', 'horse', 'battery'] },
   { line: "login password='correct horse battery' rejected", leaks: ['correct', 'horse', 'battery'] },
   { line: 'redirected to /oauth/callback?code=zz77abc&state=q9', leaks: ['zz77abc', 'q9'] },
+  { line: 'Authorization: Digest username="alex", response="abcdefsecret"', leaks: ['alex', 'abcdefsecret'] },
+  {
+    line: JSON.stringify({ authorization: 'Digest username="alex", response="abcdefsecret"', status: 401 }),
+    leaks: ['alex', 'abcdefsecret'],
+  },
+  { line: JSON.stringify({ password: 'first"remainingsecret' }), leaks: ['first', 'remainingsecret'] },
+  { line: "login password='first\\'remainingsecret' rejected", leaks: ['first', 'remainingsecret'] },
+  { line: 'send to jose\u0301@example.com failed', leaks: ['jose', 'example.com'] },
 ];
 
 describe('scrubText', () => {

@@ -78,19 +78,20 @@ function templateUrl(url: string, rules: RouteRules): string {
 // Fixed replacements, applied in order. Secrets first, so a token is never half-matched as something else.
 const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\beyJ[\w-]+\.[\w-]+\.[\w-]+/g, '[jwt]'],
-  // Whatever the scheme (Bearer, Basic, Token, …); and a Cookie header is redacted to the end of the line.
-  [/\bauthorization(["']?\s*[=:]\s*)["']?(?:[a-z]+\s+)?[^\s"',;]+/gi, 'authorization$1[redacted]'],
+  // The whole Authorization value whatever the scheme (Digest has several parameters): an escape-aware quoted
+  // string when serialised, otherwise to the end of the line. A Cookie header is redacted to the end of the line.
+  [/\bauthorization(["']?\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\r\n]*)/gi, 'authorization$1[redacted]'],
   [/\b(bearer|basic)\s+[\w.~+/=-]+/gi, '$1 [token]'],
   [/\bcookie(["']?\s*:\s*)[^\r\n]*/gi, 'cookie$1[redacted]'],
   [/\b(sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|xox[abposr]-|whsec_|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|pk_test_)[\w-]{8,}/g, '[key]'],
   [/\bAKIA[0-9A-Z]{16}\b/g, '[key]'],
   // Any key whose name contains one of these words, so STRIPE_SECRET_KEY=, refresh_token=, csrfToken: and
   // "refreshToken":"…" are caught too. A quoted value is redacted whole, spaces included.
-  [/\b([\w-]*(?:key|secret|token|password|passwd|pwd|credential|private|cookie|session)[\w-]*)(["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|["']?[^\s"',;&]+)/gi, '$1$2[redacted]'],
+  [/\b([\w-]*(?:key|secret|token|password|passwd|pwd|credential|private|cookie|session)[\w-]*)(["']?\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|["']?[^\s"',;&]+)/gi, '$1$2[redacted]'],
   // Any userinfo in a URL: user:pass@, :pass@ (Redis) and a bare key@ (a Sentry or GlitchTip DSN).
   [/(\w+:\/\/)[^\s/?#@]+@/g, '$1[creds]@'],
   // Unicode local parts and domains; the @ may be URL-encoded as %40.
-  [/[\p{L}\p{N}_.+-]+(?:@|%40)[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+/gu, '[email]'],
+  [/[\p{L}\p{M}\p{N}_.+-]+(?:@|%40)[\p{L}\p{M}\p{N}_-]+(?:\.[\p{L}\p{M}\p{N}_-]+)+/gu, '[email]'],
 ];
 
 const LATE_REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
