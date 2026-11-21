@@ -22,6 +22,17 @@ describe('checkTeamMembership', () => {
     expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
   });
 
+  it('denies a token GitHub will not let read the team (403: SSO not authorised, or no Members: read)', async () => {
+    const { fetcher } = fakeGitHub({ '/user': user, [PATH]: { status: 403 } });
+    expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
+  });
+
+  it('throws on a rate-limited 403 rather than denying', async () => {
+    const limited = { status: 403, headers: { 'x-ratelimit-remaining': '0' } };
+    const { fetcher } = fakeGitHub({ '/user': user, [PATH]: limited });
+    await expect(checkTeamMembership('t', TEAM, fetcher)).rejects.toThrow();
+  });
+
   it("reports when GitHub says the caller's token expires", async () => {
     const expiring = { ...user, headers: { 'github-authentication-token-expiration': '2027-11-21 13:20:00 UTC' } };
     const { fetcher } = fakeGitHub({ '/user': expiring, [PATH]: { status: 200, body: { state: 'active' } } });
