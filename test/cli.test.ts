@@ -1,20 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { formatEvent, run, type Deps } from '../src/cli/main.ts';
 
-function deps(routes: Record<string, { status: number; body: unknown }>) {
+function deps(routes: Record<string, { status: number; body: unknown; headers?: Record<string, string> }>) {
   const lines: string[] = [];
   const urls: string[] = [];
+  const warnings: string[] = [];
   const value: Deps = {
     apiUrl: 'https://agent-idea.example',
     token: 't',
     out: (line) => lines.push(line),
+    warn: (line) => warnings.push(line),
+    now: () => new Date('2027-11-01T00:00:00Z'),
     fetch: async (input) => {
       urls.push(input);
       const route = routes[new URL(input).pathname];
-      return Response.json(route?.body ?? { error: 'Not found' }, { status: route?.status ?? 404 });
+      return Response.json(route?.body ?? { error: 'Not found' }, { status: route?.status ?? 404, headers: route?.headers });
     },
   };
-  return { value, lines, urls };
+  return { value, lines, urls, warnings };
 }
 
 const event = {
@@ -93,6 +96,33 @@ describe('idea access', () => {
     });
     await run(['access', 'ads'], value);
     expect(lines).toEqual(['octocat is in the ideaSquared/adoptdontshop team.']);
+  });
+});
+
+describe('token expiry warning', () => {
+  const access = (expiresAt?: string) => ({
+    '/v1/access/ads': {
+      status: 200,
+      body: { login: 'octocat', team: 'ideaSquared/adoptdontshop' },
+      headers: expiresAt ? { 'x-token-expires-at': expiresAt } : undefined,
+    },
+  });
+
+  it('warns when the token expires within 30 days, naming the date and the days left', async () => {
+    const { value, lines, warnings } = deps(access('2027-11-21T13:20:00.000Z'));
+    await run(['access', 'ads'], value);
+    expect(warnings).toEqual([
+      'Warning: your GitHub token expires on 2027-11-21 (in 20 days). Create a new one and replace it where you set it (GH_TOKEN, gh auth login or the cloud environment secret).',
+    ]);
+    expect(lines).toEqual(['octocat is in the ideaSquared/adoptdontshop team.']);
+  });
+
+  it('stays quiet when the token has more than 30 days left, or never expires', async () => {
+    for (const expiresAt of ['2027-12-15T00:00:00.000Z', undefined]) {
+      const { value, warnings } = deps(access(expiresAt));
+      await run(['access', 'ads'], value);
+      expect(warnings).toEqual([]);
+    }
   });
 });
 

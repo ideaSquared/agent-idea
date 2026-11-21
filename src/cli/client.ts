@@ -9,7 +9,24 @@ export type ApiDeps = {
   apiUrl: string;
   token: string | undefined;
   fetch: (input: string, init?: RequestInit) => Promise<Response>;
+  // Where warnings go (stderr in the CLI and the MCP server) and the clock they are judged by.
+  warn?: (line: string) => void;
+  now?: () => Date;
 };
+
+const WARN_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// A warning when the token expires within WARN_DAYS, from the API's x-token-expires-at header. undefined otherwise.
+export function expiryWarning(expiresAt: string | null, now: Date): string | undefined {
+  if (!expiresAt) return undefined;
+  const expires = new Date(expiresAt);
+  if (Number.isNaN(expires.getTime())) return undefined;
+  const days = Math.floor((expires.getTime() - now.getTime()) / DAY_MS);
+  if (days > WARN_DAYS) return undefined;
+  const when = days <= 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`;
+  return `Warning: your GitHub token expires on ${expires.toISOString().slice(0, 10)} (${when}). Create a new one and replace it where you set it (GH_TOKEN, gh auth login or the cloud environment secret).`;
+}
 
 export class ApiError extends Error {}
 
@@ -27,6 +44,7 @@ export function apiFromEnv(): ApiDeps {
     apiUrl: (process.env.AGENT_IDEA_URL ?? 'https://agent-idea.idea-squared.workers.dev').replace(/\/$/, ''),
     token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ghToken(),
     fetch,
+    warn: (line) => console.error(line),
   };
 }
 
@@ -34,6 +52,8 @@ export function apiFromEnv(): ApiDeps {
 export async function call(deps: ApiDeps, path: string): Promise<unknown> {
   if (!deps.token) throw new ApiError('Not signed in. Run `gh auth login` or set GH_TOKEN.');
   const response = await deps.fetch(`${deps.apiUrl}${path}`, { headers: { authorization: `Bearer ${deps.token}` } });
+  const warning = expiryWarning(response.headers.get('x-token-expires-at'), (deps.now ?? (() => new Date()))());
+  if (warning) deps.warn?.(warning);
   const body: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = typeof body === 'object' && body !== null && 'error' in body ? String(body.error) : '';

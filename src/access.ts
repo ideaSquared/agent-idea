@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
+// tokenExpiresAt is when the caller's GitHub token expires (ISO 8601), when GitHub says it does.
 export type Access =
-  | { outcome: 'allowed'; login: string }
-  | { outcome: 'denied'; login: string }
+  | { outcome: 'allowed'; login: string; tokenExpiresAt?: string }
+  | { outcome: 'denied'; login: string; tokenExpiresAt?: string }
   | { outcome: 'unauthenticated' };
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -26,6 +27,19 @@ function github(token: string, fetcher: Fetch, path: string): Promise<Response> 
 
 export type TeamRef = { org: string; team: string };
 
+const EXPIRATION = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{4})$/;
+
+// GitHub's github-authentication-token-expiration header ("2027-11-21 13:20:00 UTC" or "... +0100") as ISO 8601.
+// undefined when the header is missing (a token with no expiry) or not in a form we recognise.
+export function tokenExpiry(header: string | null): string | undefined {
+  const match = EXPIRATION.exec(header ?? '');
+  if (!match) return undefined;
+  const [, date, time, zone = 'UTC'] = match;
+  const offset = zone === 'UTC' ? 'Z' : `${zone.slice(0, 3)}:${zone.slice(3)}`;
+  const parsed = new Date(`${date}T${time}${offset}`);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
 // Membership of a GitHub team, read with the caller's own token, so GitHub decides. Only an active membership
 // allows: a pending invitation is denied. A 404 means not a member (GitHub also answers 404 when the token cannot
 // see the org's teams, which is a denial too). Any other unexpected status throws, and the handler answers 500.
@@ -36,14 +50,16 @@ export async function checkTeamMembership(token: string, { org, team }: TeamRef,
   if (userResponse.status === 401) return { outcome: 'unauthenticated' };
   if (!userResponse.ok) throw new Error(`GitHub /user answered ${userResponse.status}`);
   const { login } = UserSchema.parse(await userResponse.json());
+  const tokenExpiresAt = tokenExpiry(userResponse.headers.get('github-authentication-token-expiration'));
+  const expiry = tokenExpiresAt ? { tokenExpiresAt } : {};
 
   const path = `/orgs/${org}/teams/${team}/memberships/${encodeURIComponent(login)}`;
   const response = await github(token, fetcher, path);
   if (response.status === 401) return { outcome: 'unauthenticated' };
-  if (response.status === 404) return { outcome: 'denied', login };
+  if (response.status === 404) return { outcome: 'denied', login, ...expiry };
   if (!response.ok) throw new Error(`GitHub team membership answered ${response.status}`);
   const { state } = MembershipSchema.parse(await response.json());
-  return { outcome: state === 'active' ? 'allowed' : 'denied', login };
+  return { outcome: state === 'active' ? 'allowed' : 'denied', login, ...expiry };
 }
 
 async function sha256(text: string): Promise<string> {
@@ -52,8 +68,8 @@ async function sha256(text: string): Promise<string> {
 }
 
 const CachedSchema = z.discriminatedUnion('outcome', [
-  z.object({ outcome: z.literal('allowed'), login: z.string() }),
-  z.object({ outcome: z.literal('denied'), login: z.string() }),
+  z.object({ outcome: z.literal('allowed'), login: z.string(), tokenExpiresAt: z.string().optional() }),
+  z.object({ outcome: z.literal('denied'), login: z.string(), tokenExpiresAt: z.string().optional() }),
 ]);
 
 // checkTeamMembership, remembered for 5 minutes under a hash of the token, never the token itself. The `team:` key

@@ -253,10 +253,14 @@ export default {
     if (access.outcome === 'unauthenticated') return json({ error: 'GitHub did not accept that token' }, 401);
     if (access.outcome === 'denied') return json({ error: `You need to be in the ${ORG}/${project.team} team` }, 403);
 
-    if (route === 'logs') return logs(url, name, project, env, key);
-    if (route === 'runs' && runId !== undefined) return run(url, name, project, token, Number(runId), key);
-    if (route === 'runs') return runs(url, name, project, token, key);
-    if (route === 'errors') return errors(url, name, project, env, key);
-    return json({ project: name, team: `${ORG}/${project.team}`, login: access.login, access: 'member' });
+    let response: Response;
+    if (route === 'logs') response = await logs(url, name, project, env, key);
+    else if (route === 'runs' && runId !== undefined) response = await run(url, name, project, token, Number(runId), key);
+    else if (route === 'runs') response = await runs(url, name, project, token, key);
+    else if (route === 'errors') response = await errors(url, name, project, env, key);
+    else response = json({ project: name, team: `${ORG}/${project.team}`, login: access.login, access: 'member' });
+    // Tell the CLI when the caller's token expires, so it can warn them to rotate it before it stops working.
+    if (access.tokenExpiresAt) response.headers.set('x-token-expires-at', access.tokenExpiresAt);
+    return response;
   },
 } satisfies ExportedHandler<Env>;

@@ -16,7 +16,7 @@ export function fakeKv(): KVNamespace & { store: Map<string, string> } {
   return kv as unknown as KVNamespace & { store: Map<string, string> };
 }
 
-type Route = { status: number; body?: unknown };
+type Route = { status: number; body?: unknown; headers?: Record<string, string> };
 
 // A fetch that answers GitHub API paths from a table and records every call.
 export function fakeGitHub(routes: Record<string, Route>) {
@@ -25,7 +25,7 @@ export function fakeGitHub(routes: Record<string, Route>) {
     calls.push({ url: input, authorization: new Headers(init?.headers).get('authorization') });
     const route = routes[new URL(input).pathname];
     if (!route) return new Response('not found', { status: 404 });
-    return Response.json(route.body ?? {}, { status: route.status });
+    return Response.json(route.body ?? {}, { status: route.status, headers: route.headers });
   };
   return { fetcher, calls };
 }
