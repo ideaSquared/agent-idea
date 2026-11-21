@@ -27,6 +27,13 @@ function github(token: string, fetcher: Fetch, path: string): Promise<Response> 
 
 export type TeamRef = { org: string; team: string };
 
+// GitHub also answers 403 for its primary (quota spent) and secondary rate limits. Those are temporary, so they must
+// never become a cached denial. A secondary limit may only say so in retry-after or the error message.
+async function rateLimited(response: Response): Promise<boolean> {
+  if (response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after')) return true;
+  return /rate limit/i.test(await response.text());
+}
+
 const EXPIRATION = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{4})$/;
 
 // GitHub's github-authentication-token-expiration header ("2027-11-21 13:20:00 UTC" or "... +0100") as ISO 8601.
@@ -59,7 +66,7 @@ export async function checkTeamMembership(token: string, { org, team }: TeamRef,
   const response = await github(token, fetcher, path);
   if (response.status === 401) return { outcome: 'unauthenticated' };
   if (response.status === 404) return { outcome: 'denied', login, ...expiry };
-  if (response.status === 403 && response.headers.get('x-ratelimit-remaining') !== '0') {
+  if (response.status === 403 && !(await rateLimited(response))) {
     return { outcome: 'denied', login, ...expiry };
   }
   if (!response.ok) throw new Error(`GitHub team membership answered ${response.status}`);

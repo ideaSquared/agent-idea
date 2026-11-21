@@ -27,8 +27,11 @@ describe('checkTeamMembership', () => {
     expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
   });
 
-  it('throws on a rate-limited 403 rather than denying', async () => {
-    const limited = { status: 403, headers: { 'x-ratelimit-remaining': '0' } };
+  it.each([
+    ['quota spent', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }],
+    ['secondary limit with retry-after', { status: 403, headers: { 'retry-after': '60' } }],
+    ['secondary limit named only in the message', { status: 403, body: { message: 'You have exceeded a secondary rate limit.' } }],
+  ])('throws on a rate-limited 403 (%s) rather than denying', async (_name, limited) => {
     const { fetcher } = fakeGitHub({ '/user': user, [PATH]: limited });
     await expect(checkTeamMembership('t', TEAM, fetcher)).rejects.toThrow();
   });
@@ -121,6 +124,14 @@ describe('cachedTeamMembership', () => {
     const { fetcher } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
     await cachedTeamMembership('very-secret-token', TEAM, kv, fetcher);
     expect(JSON.stringify([...kv.store.entries()])).not.toContain('very-secret-token');
+  });
+
+  it('does not cache a rate-limited 403', async () => {
+    const limited = { status: 403, headers: { 'retry-after': '60' } };
+    const { fetcher } = fakeGitHub({ '/user': user, [PATH]: limited });
+    const cache = fakeKv();
+    await expect(cachedTeamMembership('t', TEAM, cache, fetcher)).rejects.toThrow();
+    expect(cache.store.size).toBe(0);
   });
 
   it('does not cache a rejected token', async () => {
