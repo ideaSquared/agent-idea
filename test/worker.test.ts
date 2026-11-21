@@ -62,6 +62,25 @@ describe('GET /v1/access/:project', () => {
     expect(await response.json()).toEqual({ error: 'You need to be in the ideaSquared/creatrgrid team' });
   });
 
+  it("passes on when the caller's token expires", async () => {
+    vi.stubGlobal(
+      'fetch',
+      fakeGitHub({
+        '/user': { status: 200, body: { login: 'octocat' }, headers: { 'github-authentication-token-expiration': '2027-11-21 13:20:00 UTC' } },
+        [TEAM('pairflix')]: member(true),
+      }).fetcher,
+    );
+    const response = await worker.fetch(request('/v1/access/pairflix', 't'), env());
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-token-expires-at')).toBe('2027-11-21T13:20:00.000Z');
+  });
+
+  it('sends no expiry header for a token that never expires', async () => {
+    stubGitHub(true);
+    const response = await worker.fetch(request('/v1/access/pairflix', 't'), env());
+    expect(response.headers.get('x-token-expires-at')).toBeNull();
+  });
+
   it('answers 401 for a token GitHub rejects', async () => {
     vi.stubGlobal('fetch', fakeGitHub({ '/user': { status: 401 } }).fetcher);
     const response = await worker.fetch(request('/v1/access/pairflix', 'bad'), env());

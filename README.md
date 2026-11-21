@@ -48,6 +48,8 @@ idea access ads                               # check you are in the project's t
   the window. It never searches raw logs, so it can't reveal whether hidden data (a slug, an email) is in them.
 - It signs in with `GH_TOKEN`, `GITHUB_TOKEN` or your `gh` login, and talks to `AGENT_IDEA_URL`
   (default `https://agent-idea.idea-squared.workers.dev`).
+- When your GitHub token expires within 30 days, every command prints a warning to stderr with the date. GitHub
+  reports the expiry; the API passes it on in an `x-token-expires-at` header. Tokens with no expiry never warn.
 
 ## MCP server (phase 6)
 

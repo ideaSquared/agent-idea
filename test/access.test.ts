@@ -22,6 +22,31 @@ describe('checkTeamMembership', () => {
     expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
   });
 
+  it("reports when GitHub says the caller's token expires", async () => {
+    const expiring = { ...user, headers: { 'github-authentication-token-expiration': '2027-11-21 13:20:00 UTC' } };
+    const { fetcher } = fakeGitHub({ '/user': expiring, [PATH]: { status: 200, body: { state: 'active' } } });
+    expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({
+      outcome: 'allowed',
+      login: 'octocat',
+      tokenExpiresAt: '2027-11-21T13:20:00.000Z',
+    });
+  });
+
+  it('reads an expiry GitHub gives as a numeric offset', async () => {
+    const expiring = { ...user, headers: { 'github-authentication-token-expiration': '2027-11-21 14:20:00 +0100' } };
+    const { fetcher } = fakeGitHub({ '/user': expiring, [PATH]: { status: 200, body: { state: 'active' } } });
+    const access = await checkTeamMembership('t', TEAM, fetcher);
+    expect(access.outcome !== 'unauthenticated' && access.tokenExpiresAt).toBe('2027-11-21T13:20:00.000Z');
+  });
+
+  it('leaves the expiry out for a token that never expires, or an expiry it cannot read', async () => {
+    const odd = { ...user, headers: { 'github-authentication-token-expiration': 'soon' } };
+    for (const userRoute of [user, odd]) {
+      const { fetcher } = fakeGitHub({ '/user': userRoute, [PATH]: { status: 200, body: { state: 'active' } } });
+      expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'allowed', login: 'octocat' });
+    }
+  });
+
   it('reports a token GitHub rejects as unauthenticated', async () => {
     const { fetcher } = fakeGitHub({ '/user': { status: 401 } });
     expect(await checkTeamMembership('t', TEAM, fetcher)).toEqual({ outcome: 'unauthenticated' });
@@ -69,6 +94,15 @@ describe('cachedTeamMembership', () => {
     const other = await cachedTeamMembership('t', { org: 'ideaSquared', team: 'pairflix' }, kv, fetcher);
     expect(other.outcome).toBe('denied');
     expect(calls).toHaveLength(4);
+  });
+
+  it('remembers the expiry with the answer', async () => {
+    const kv = fakeKv();
+    const expiring = { ...user, headers: { 'github-authentication-token-expiration': '2027-11-21 13:20:00 UTC' } };
+    const { fetcher } = fakeGitHub({ '/user': expiring, [PATH]: { status: 200, body: { state: 'active' } } });
+    await cachedTeamMembership('t', TEAM, kv, fetcher);
+    const cached = await cachedTeamMembership('t', TEAM, kv, fetcher);
+    expect(cached).toEqual({ outcome: 'allowed', login: 'octocat', tokenExpiresAt: '2027-11-21T13:20:00.000Z' });
   });
 
   it('never stores the token', async () => {
