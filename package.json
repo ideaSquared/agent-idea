@@ -16,7 +16,8 @@
     "typecheck": "tsc && tsc -p packages/log && tsc -p packages/ops",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -24,11 +25,14 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261107.1",
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
     "@eslint/js": "^10.0.1",
     "@ideasquared/log": "workspace:*",
     "@types/node": "^24.0.0",
     "eslint": "^10.15.0",
     "globals": "^17.14.0",
+    "husky": "^9.1.7",
     "prettier": "^3.10.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.73.0",
