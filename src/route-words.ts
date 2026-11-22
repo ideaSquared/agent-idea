@@ -302,6 +302,7 @@ const PROJECT_WORDS: Readonly<Record<string, readonly string[]>> = {
     'errors',
     'runs',
     'ads',
+    'agent-idea',
     'creatrgrid',
     'gaminginit',
     'gaminginit-bot',

@@ -180,6 +180,11 @@ describe('sanitiseEvent', () => {
     expect(event.route).toBe('/v1/runs/pairflix/:param');
   });
 
+  it('keeps its own project name in its own routes', async () => {
+    const event = await sanitiseEvent({ timestamp: 0, route: '/v1/runs/agent-idea/43639019850' }, KEY, AGENT_IDEA);
+    expect(event.route).toBe('/v1/runs/agent-idea/:param');
+  });
+
   it('turns path segments that are not known route words into :param, so slugs never leave', async () => {
     const event = await sanitiseEvent({ timestamp: 0, route: '/api/v1/creators/paragonjenko' }, KEY, CREATRGRID);
     expect(event.route).toBe('/api/v1/creators/:param');
