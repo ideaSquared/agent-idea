@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Sanitised logs for every ideaSquared product, gated by GitHub write access.",
+  "license": "UNLICENSED",
   "type": "module",
   "engines": {
     "node": ">=24.0.0 <25.0.0"
