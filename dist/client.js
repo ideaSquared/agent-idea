@@ -1,14 +1,6 @@
 import { execFileSync } from 'node:child_process';
 // The projects the API knows (src/projects.ts). The CLI ships on its own, so it keeps a copy; a test checks they match.
-export const PROJECT_NAMES = [
-    'ads',
-    'agent-idea',
-    'creatrgrid',
-    'gaminginit',
-    'gaminginit-bot',
-    'ideasquared-bot',
-    'pairflix',
-];
+export const PROJECT_NAMES = ['ads', 'agent-idea', 'creatrgrid', 'ideasquared-bot', 'pairflix'];
 export const ENVIRONMENTS = ['staging', 'production'];
 const WARN_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;

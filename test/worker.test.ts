@@ -117,8 +117,6 @@ describe('GET /v1/access/:project', () => {
     ['ads', 'adoptdontshop'],
     ['creatrgrid', 'creatrgrid'],
     ['pairflix', 'pairflix'],
-    ['gaminginit', 'gaminginit'],
-    ['gaminginit-bot', 'gaminginit'],
     ['ideasquared-bot', 'ops-platform'],
     ['agent-idea', 'ops-platform'],
   ])('checks %s against the %s team', async (project, team) => {
@@ -612,7 +610,6 @@ describe('--env on /v1/logs and /v1/errors', () => {
       '/user': { status: 200, body: { login: 'octocat' } },
       [TEAM('pairflix')]: write,
       [TEAM('creatrgrid')]: write,
-      [TEAM('gaminginit')]: write,
       [TEAM('adoptdontshop')]: write,
       [TEAM('ops-platform')]: write,
       [LOGS_PATH]: { status: 200, body: { success: true, result: { events: { events: [] } } } },
@@ -682,9 +679,9 @@ describe('--env on /v1/logs and /v1/errors', () => {
 
   it('fails naming the project when Workers cannot be told apart, rather than returning everything', async () => {
     const { calls } = stub();
-    const response = await worker.fetch(request('/v1/logs/gaminginit?env=staging', 't'), env());
+    const response = await worker.fetch(request('/v1/logs/ideasquared-bot?env=staging', 't'), env());
     expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: noEnvs('gaminginit') });
+    expect(await response.json()).toEqual({ error: noEnvs('ideasquared-bot') });
     expect(calls.some((call) => call.url.includes('telemetry'))).toBe(false);
   });
 
