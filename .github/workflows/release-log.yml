@@ -46,7 +46,12 @@ jobs:
         if: steps.version.outputs.exists == 'false'
         run: |
           pnpm -C packages/log build
-          git diff --exit-code -- packages/log/dist || { echo "::error::packages/log/dist is out of date"; exit 1; }
+          stale=$(git status --porcelain -- packages/log/dist)
+          if [ -n "$stale" ]; then
+            echo "$stale"
+            echo "::error::packages/log/dist is out of date"
+            exit 1
+          fi
           pnpm -C packages/log pack --pack-destination "$RUNNER_TEMP"
       - name: Publish the release
         if: steps.version.outputs.exists == 'false'

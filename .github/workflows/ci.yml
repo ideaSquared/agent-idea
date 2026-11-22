@@ -49,7 +49,13 @@ jobs:
       - name: dist/ matches src/
         run: |
           pnpm build
-          git diff --exit-code -- dist packages/log/dist packages/ops/dist || { echo "::error::dist/ is out of date. Run pnpm build and commit it."; exit 1; }
+          # `git status --porcelain` also catches files the build created that were never committed, which `git diff` misses.
+          stale=$(git status --porcelain -- dist packages/log/dist packages/ops/dist)
+          if [ -n "$stale" ]; then
+            echo "$stale"
+            echo "::error::dist/ is out of date. Run pnpm build and commit it."
+            exit 1
+          fi
       # Server code logs through @ideasquared/log, never console (see .claude/skills/logging). The CLI prints to a
       # terminal, so src/cli is exempt; a justified exception carries `// logging-exempt: <reason>` on the line.
       - name: No console calls in server code
