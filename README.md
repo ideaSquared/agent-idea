@@ -183,6 +183,7 @@ pnpm test
 pnpm typecheck
 pnpm lint
 pnpm format:check # pnpm format fixes it
+pnpm hooks:install # once per clone: the commit-msg hook that runs commitlint
 pnpm cf-typegen   # after changing wrangler.jsonc: regenerates worker-configuration.d.ts (committed)
 pnpm build        # the CLI, into dist/ (committed, so installing from GitHub needs no build)
 pnpm dev          # wrangler dev; put PSEUDONYM_KEY and CF_API_TOKEN in .dev.vars
