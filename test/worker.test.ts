@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker, { type Env } from '../src/index.ts';
-import { adsLogLine, fakeGitHub, fakeHttp, fakeKv, glitchTipEvent, glitchTipIssue, lokiBody } from './fakes.ts';
+import { adsLogLine, fakeGitHub, fakeHttp, glitchTipEvent, glitchTipIssue, lokiBody } from './fakes.ts';
+import { accessCache } from './kv.ts';
 
 const env = (overrides: Partial<Env> = {}): Env => ({
-  ACCESS_CACHE: fakeKv(),
+  ACCESS_CACHE: accessCache(),
   PSEUDONYM_KEY: 'k',
   CF_ACCOUNT_ID: 'acc',
   CF_API_TOKEN: 'cf',
@@ -92,7 +93,7 @@ describe('GET /v1/access/:project', () => {
   });
 
   it('answers from the cache without calling GitHub', async () => {
-    const cache = fakeKv();
+    const cache = accessCache();
     const first = stubGitHub(true);
     await worker.fetch(request('/v1/access/pairflix', 't'), env({ ACCESS_CACHE: cache }));
     expect(first.calls).toHaveLength(2);
@@ -103,10 +104,10 @@ describe('GET /v1/access/:project', () => {
   });
 
   it('ignores an old repo-keyed cache entry', async () => {
-    const cache = fakeKv();
+    const cache = accessCache();
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('t'));
     const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-    cache.store.set(`access:${hash}:ideaSquared/pairflix`, JSON.stringify({ outcome: 'allowed', login: 'octocat' }));
+    await cache.put(`access:${hash}:ideaSquared/pairflix`, JSON.stringify({ outcome: 'allowed', login: 'octocat' }));
     stubGitHub(false);
     const response = await worker.fetch(request('/v1/access/pairflix', 't'), env({ ACCESS_CACHE: cache }));
     expect(response.status).toBe(403);
