@@ -90,3 +90,43 @@ jobs:
       environment: production
       shipper-ref: faf1fd936bcba4dd2f1a60ce33f18298ca1cb19c
     secrets: inherit
+
+  # Tags main as v<version> and publishes a GitHub Release with generated notes, once the tests pass for this commit
+  # and package.json has a version with no release yet. Users install the CLI from GitHub
+  # (`pnpm add -g github:ideaSquared/agent-idea#v<version>` pins one). To release: bump `version` in a PR and merge it.
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # The job pushes the tag, so the token stays in the checkout; full history and tags find the previous release.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - name: Tag and release this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version package.json)
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::package.json version '$version' is not X.Y.Z"
+            exit 1
+          fi
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag is already released."
+            exit 0
+          fi
+          # The changelog starts at the latest other release tag, so a retry does not compare the tag with itself.
+          previous=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -vxF "$tag" | head -n 1 || true)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # A tag left by an earlier failed run is reused, never moved, so a re-run finishes the release.
+          if ! git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+            git tag --annotate "$tag" --message "idea $version" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+          gh release create "$tag" --verify-tag --title "idea $version" --generate-notes ${previous:+--notes-start-tag "$previous"}
