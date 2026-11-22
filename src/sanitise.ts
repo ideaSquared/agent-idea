@@ -44,7 +44,11 @@ async function tag(prefix: string, value: string, key: string): Promise<string> 
   return `${prefix}_${hex.slice(0, 8)}`;
 }
 
-async function replaceAsync(text: string, pattern: RegExp, replace: (match: string) => Promise<string>): Promise<string> {
+async function replaceAsync(
+  text: string,
+  pattern: RegExp,
+  replace: (match: string) => Promise<string>,
+): Promise<string> {
   const matches = [...text.matchAll(pattern)].map((match) => match[0]);
   const replacements = await Promise.all(matches.map(replace));
   let index = 0;
@@ -83,11 +87,17 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bauthorization(["']?\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\r\n]*)/gi, 'authorization$1[redacted]'],
   [/\b(bearer|basic)\s+[\w.~+/=-]+/gi, '$1 [token]'],
   [/\bcookie(["']?\s*:\s*)[^\r\n]*/gi, 'cookie$1[redacted]'],
-  [/\b(sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|xox[abposr]-|whsec_|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|pk_test_)[\w-]{8,}/g, '[key]'],
+  [
+    /\b(sk-ant-|sk-|ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|xox[abposr]-|whsec_|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|pk_test_)[\w-]{8,}/g,
+    '[key]',
+  ],
   [/\bAKIA[0-9A-Z]{16}\b/g, '[key]'],
   // Any key whose name contains one of these words, so STRIPE_SECRET_KEY=, refresh_token=, csrfToken: and
   // "refreshToken":"…" are caught too. A quoted value is redacted whole, spaces included.
-  [/\b([\w-]*(?:key|secret|token|password|passwd|pwd|credential|private|cookie|session)[\w-]*)(["']?\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|["']?[^\s"',;&]+)/gi, '$1$2[redacted]'],
+  [
+    /\b([\w-]*(?:key|secret|token|password|passwd|pwd|credential|private|cookie|session)[\w-]*)(["']?\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|["']?[^\s"',;&]+)/gi,
+    '$1$2[redacted]',
+  ],
   // Any userinfo in a URL: user:pass@, :pass@ (Redis) and a bare key@ (a Sentry or GlitchTip DSN).
   [/(\w+:\/\/)[^\s/?#@]+@/g, '$1[creds]@'],
   // Unicode local parts and domains; the @ may be URL-encoded as %40.
@@ -108,7 +118,10 @@ const LATE_REDACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
 export async function scrubText(text: string, key: string, rules: RouteRules): Promise<string> {
   const redacted = REDACTIONS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text)
     .replace(/\b\w+:\/\/[^\s"'<>]+/g, (url) => templateUrl(url, rules))
-    .replace(/\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s"'<>]*)/g, (_, method: string, path: string) => `${method} ${templateRoute(path, rules)}`)
+    .replace(
+      /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/[^\s"'<>]*)/g,
+      (_, method: string, path: string) => `${method} ${templateRoute(path, rules)}`,
+    )
     .replace(/(\/[^\s"'<>?#]*)\?[^\s"'<>]+/g, '$1?[query]');
   const withIds = await replaceAsync(
     redacted,
@@ -164,7 +177,9 @@ export async function sanitiseEvent(raw: unknown, key: string, rules: RouteRules
     ...(event.route ? { route: templateRoute(event.route, rules) } : {}),
     ...(event.status !== undefined && event.status >= 100 && event.status <= 599 ? { status: event.status } : {}),
     ...(event.durationMs !== undefined ? { durationMs: Math.round(event.durationMs) } : {}),
-    ...(event.errorType ? { errorType: /^[A-Z][A-Za-z]{0,40}$/.test(event.errorType) ? event.errorType : 'Error' } : {}),
+    ...(event.errorType
+      ? { errorType: /^[A-Z][A-Za-z]{0,40}$/.test(event.errorType) ? event.errorType : 'Error' }
+      : {}),
     ...(event.stack ? { stack: stackFrames(event.stack) } : {}),
   };
 }

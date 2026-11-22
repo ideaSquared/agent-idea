@@ -20,8 +20,11 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
       # Dependabot bumps the shipper SHA in a `uses:` line but not the matching `shipper-ref:` input, so
       # a bump would run the new workflow with the old shipper scripts. Every pin must be the same SHA.
       - name: shipper pins match
@@ -31,12 +34,16 @@ jobs:
             echo "::error::Every shipper pin in .github/workflows (each uses: line and each shipper-ref input) must be the same commit SHA. Found: $(echo $refs)"
             exit 1
           fi
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v5
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      # Fails when worker-configuration.d.ts is stale: run `pnpm cf-typegen` and commit it after changing wrangler.jsonc.
+      - run: pnpm cf-typegen --check
       - run: pnpm typecheck
       - run: pnpm test
       # dist/ is committed so `pnpm add -g github:ideaSquared/agent-idea` works without a build step.
@@ -44,7 +51,20 @@ jobs:
       - name: dist/ matches src/
         run: |
           pnpm build
-          git diff --exit-code -- dist packages/log/dist packages/ops/dist || { echo "::error::dist/ is out of date. Run pnpm build and commit it."; exit 1; }
+          # `git status --porcelain` also catches files the build created that were never committed, which `git diff` misses.
+          stale=$(git status --porcelain -- dist packages/log/dist packages/ops/dist)
+          if [ -n "$stale" ]; then
+            echo "$stale"
+            echo "::error::dist/ is out of date. Run pnpm build and commit it."
+            exit 1
+          fi
+      # What `pnpm add -g github:ideaSquared/agent-idea` gives a user: pack the repo, install the tarball globally and
+      # run the installed command.
+      - name: Packed CLI installs and runs
+        run: |
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+          npm install --global "$RUNNER_TEMP"/agent-idea-*.tgz
+          test "$(idea --version)" = "$(jq -r .version package.json)"
       # Server code logs through @ideasquared/log, never console (see .claude/skills/logging). The CLI prints to a
       # terminal, so src/cli is exempt; a justified exception carries `// logging-exempt: <reason>` on the line.
       - name: No console calls in server code
@@ -70,3 +90,43 @@ jobs:
       environment: production
       shipper-ref: faf1fd936bcba4dd2f1a60ce33f18298ca1cb19c
     secrets: inherit
+
+  # Tags main as v<version> and publishes a GitHub Release with generated notes, once the tests pass for this commit
+  # and package.json has a version with no release yet. Users install the CLI from GitHub
+  # (`pnpm add -g github:ideaSquared/agent-idea#v<version>` pins one). To release: bump `version` in a PR and merge it.
+  release:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # The job pushes the tag, so the token stays in the checkout; full history and tags find the previous release.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+      - name: Tag and release this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version package.json)
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::package.json version '$version' is not X.Y.Z"
+            exit 1
+          fi
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag is already released."
+            exit 0
+          fi
+          # The changelog starts at the latest other release tag, so a retry does not compare the tag with itself.
+          previous=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -vxF "$tag" | head -n 1 || true)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # A tag left by an earlier failed run is reused, never moved, so a re-run finishes the release.
+          if ! git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+            git tag --annotate "$tag" --message "idea $version" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+          gh release create "$tag" --verify-tag --title "idea $version" --generate-notes ${previous:+--notes-start-tag "$previous"}

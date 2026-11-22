@@ -62,8 +62,7 @@ describe('fetchCatalog', () => {
   });
 
   it('throws internal for a response that is not contract v1', async () => {
-    const wrongVersion: Fetch = async () =>
-      Response.json({ version: 2, product: 'p', environment: 'e', commands: [] });
+    const wrongVersion: Fetch = async () => Response.json({ version: 2, product: 'p', environment: 'e', commands: [] });
     const html: Fetch = async () => new Response('<html>bad gateway</html>', { status: 502 });
     await expect(fetchCatalog(BASE, 't', wrongVersion)).rejects.toMatchObject({ code: 'internal' });
     await expect(fetchCatalog(BASE, 't', html)).rejects.toMatchObject({ code: 'internal' });
@@ -73,9 +72,24 @@ describe('fetchCatalog', () => {
 describe('invoke', () => {
   it('previews and then runs a write', async () => {
     const fetcher = loopback();
-    const preview = await invoke(BASE, 'tok', { command: 'accounts.resync', args: { accountId: 'a' }, mode: 'preview' }, fetcher);
-    expect(preview).toEqual({ command: 'accounts.resync', mode: 'preview', result: { wouldQueue: 1 }, summary: 'would queue 1' });
-    const run = await invoke(BASE, 'tok', { command: 'accounts.resync', args: { accountId: 'a' }, mode: 'run' }, fetcher);
+    const preview = await invoke(
+      BASE,
+      'tok',
+      { command: 'accounts.resync', args: { accountId: 'a' }, mode: 'preview' },
+      fetcher,
+    );
+    expect(preview).toEqual({
+      command: 'accounts.resync',
+      mode: 'preview',
+      result: { wouldQueue: 1 },
+      summary: 'would queue 1',
+    });
+    const run = await invoke(
+      BASE,
+      'tok',
+      { command: 'accounts.resync', args: { accountId: 'a' }, mode: 'run' },
+      fetcher,
+    );
     expect(run.result).toEqual({ queued: 1 });
   });
 
@@ -83,6 +97,10 @@ describe('invoke', () => {
     const error = await invoke(BASE, 'tok', { command: 'accounts.resync', args: {}, mode: 'run' }, loopback()).catch(
       (e: unknown) => e,
     );
-    expect(error).toMatchObject({ name: 'OpsError', code: 'invalid_argument', message: "field 'accountId' is required" });
+    expect(error).toMatchObject({
+      name: 'OpsError',
+      code: 'invalid_argument',
+      message: "field 'accountId' is required",
+    });
   });
 });

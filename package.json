@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "Sanitised logs for every ideaSquared product, gated by GitHub write access.",
+  "license": "UNLICENSED",
   "type": "module",
   "engines": {
-    "node": ">=22.18"
+    "node": ">=24.0.0 <25.0.0"
   },
   "packageManager": "pnpm@10.34.3",
   "scripts": {
@@ -13,17 +14,29 @@
     "deploy": "wrangler deploy",
     "build": "tsc -p tsconfig.build.json && pnpm -C packages/log build && pnpm -C packages/ops build",
     "test": "vitest run",
-    "typecheck": "tsc && tsc -p packages/log && tsc -p packages/ops"
+    "cf-typegen": "wrangler types --no-strict-vars",
+    "typecheck": "tsc && tsc -p packages/log && tsc -p packages/ops",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "hooks:install": "husky"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261107.1",
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^10.0.1",
     "@ideasquared/log": "workspace:*",
-    "@types/node": "^22.20.4",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.10.1",
     "typescript": "~5.9.3",
+    "typescript-eslint": "^8.73.0",
     "vitest": "^5.0.2",
     "wrangler": "^4.158.0"
   },

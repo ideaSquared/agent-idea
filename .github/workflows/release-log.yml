@@ -10,15 +10,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+# A release is never cut off half way, and two never run at once.
+concurrency:
+  group: release-log
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -36,7 +46,12 @@ jobs:
         if: steps.version.outputs.exists == 'false'
         run: |
           pnpm -C packages/log build
-          git diff --exit-code -- packages/log/dist || { echo "::error::packages/log/dist is out of date"; exit 1; }
+          stale=$(git status --porcelain -- packages/log/dist)
+          if [ -n "$stale" ]; then
+            echo "$stale"
+            echo "::error::packages/log/dist is out of date"
+            exit 1
+          fi
           pnpm -C packages/log pack --pack-destination "$RUNNER_TEMP"
       - name: Publish the release
         if: steps.version.outputs.exists == 'false'

@@ -5,15 +5,22 @@ type Route = { status?: number; body?: unknown; text?: string; location?: string
 
 // A fetch that answers paths (and full URLs) from a table, recording each call and its Authorization header.
 function fake(routes: Record<string, Route>) {
-  const calls: Array<{ url: string; authorization: string | null; redirect?: RequestInit["redirect"] }> = [];
+  const calls: Array<{ url: string; authorization: string | null; redirect?: RequestInit['redirect'] }> = [];
   const fetcher = async (input: string, init?: RequestInit): Promise<Response> => {
-    calls.push({ url: input, authorization: new Headers(init?.headers).get('authorization'), redirect: init?.redirect });
+    calls.push({
+      url: input,
+      authorization: new Headers(init?.headers).get('authorization'),
+      redirect: init?.redirect,
+    });
     const parsed = new URL(input);
     const route = routes[input] ?? routes[parsed.pathname + parsed.search] ?? routes[parsed.pathname];
     if (!route) return new Response('not found', { status: 404 });
     const headers = route.location ? { location: route.location } : undefined;
     if (route.text !== undefined) return new Response(route.text, { status: route.status ?? 200, headers });
-    return new Response(route.body === undefined ? null : JSON.stringify(route.body), { status: route.status ?? 200, headers });
+    return new Response(route.body === undefined ? null : JSON.stringify(route.body), {
+      status: route.status ?? 200,
+      headers,
+    });
   };
   return { fetcher, calls };
 }
@@ -40,13 +47,36 @@ describe('listRuns', () => {
     const { fetcher, calls } = fake({
       [`/repos/${REPO}`]: { body: { default_branch: 'main' } },
       [`/repos/${REPO}/actions/runs`]: {
-        body: { workflow_runs: [run({}), run({ id: 2, run_number: 8, head_branch: 'alex/fix-login', conclusion: 'success' })] },
+        body: {
+          workflow_runs: [run({}), run({ id: 2, run_number: 8, head_branch: 'alex/fix-login', conclusion: 'success' })],
+        },
       },
     });
     const runs = await listRuns(REPO, 'tok', { limit: 5, failed: false }, fetcher);
     expect(runs).toEqual([
-      { id: 1, number: 7, workflow: 'CI', event: 'push', status: 'completed', conclusion: 'failure', branch: 'main', sha: 'abcdef1', createdAt: '2026-11-14T20:00:00Z', url: 'https://github.com/ideaSquared/creatrgrid/actions/runs/1' },
-      { id: 2, number: 8, workflow: 'CI', event: 'push', status: 'completed', conclusion: 'success', sha: 'abcdef1', createdAt: '2026-11-14T20:00:00Z', url: 'https://github.com/ideaSquared/creatrgrid/actions/runs/1' },
+      {
+        id: 1,
+        number: 7,
+        workflow: 'CI',
+        event: 'push',
+        status: 'completed',
+        conclusion: 'failure',
+        branch: 'main',
+        sha: 'abcdef1',
+        createdAt: '2026-11-14T20:00:00Z',
+        url: 'https://github.com/ideaSquared/creatrgrid/actions/runs/1',
+      },
+      {
+        id: 2,
+        number: 8,
+        workflow: 'CI',
+        event: 'push',
+        status: 'completed',
+        conclusion: 'success',
+        sha: 'abcdef1',
+        createdAt: '2026-11-14T20:00:00Z',
+        url: 'https://github.com/ideaSquared/creatrgrid/actions/runs/1',
+      },
     ]);
     expect(JSON.stringify(runs)).not.toMatch(/alex|someone/);
     expect(calls.every((call) => call.authorization === 'Bearer tok')).toBe(true);
@@ -58,7 +88,9 @@ describe('listRuns', () => {
       [`/repos/${REPO}/actions/runs`]: { body: { workflow_runs: [] } },
     });
     await listRuns(REPO, 'tok', { limit: 3, failed: true }, fetcher);
-    expect(calls.map((call) => call.url)).toContain(`https://api.github.com/repos/${REPO}/actions/runs?per_page=3&status=failure`);
+    expect(calls.map((call) => call.url)).toContain(
+      `https://api.github.com/repos/${REPO}/actions/runs?per_page=3&status=failure`,
+    );
   });
 
   it('throws when GitHub refuses', async () => {
@@ -73,21 +105,60 @@ describe('runJobs', () => {
       [`/repos/${REPO}/actions/runs/1/jobs`]: {
         body: {
           jobs: [
-            { id: 10, name: 'test', status: 'completed', conclusion: 'failure', started_at: 'a', completed_at: 'b', steps: [{ name: 'Install', conclusion: 'success' }, { name: 'Test', conclusion: 'failure' }] },
-            { id: 11, name: 'deploy', status: 'completed', conclusion: 'skipped', started_at: null, completed_at: null },
+            {
+              id: 10,
+              name: 'test',
+              status: 'completed',
+              conclusion: 'failure',
+              started_at: 'a',
+              completed_at: 'b',
+              steps: [
+                { name: 'Install', conclusion: 'success' },
+                { name: 'Test', conclusion: 'failure' },
+              ],
+            },
+            {
+              id: 11,
+              name: 'deploy',
+              status: 'completed',
+              conclusion: 'skipped',
+              started_at: null,
+              completed_at: null,
+            },
           ],
         },
       },
     });
     expect(await runJobs(REPO, 'tok', 1, fetcher)).toEqual([
-      { id: 10, name: 'test', status: 'completed', conclusion: 'failure', startedAt: 'a', completedAt: 'b', failedSteps: ['Test'] },
-      { id: 11, name: 'deploy', status: 'completed', conclusion: 'skipped', startedAt: null, completedAt: null, failedSteps: [] },
+      {
+        id: 10,
+        name: 'test',
+        status: 'completed',
+        conclusion: 'failure',
+        startedAt: 'a',
+        completedAt: 'b',
+        failedSteps: ['Test'],
+      },
+      {
+        id: 11,
+        name: 'deploy',
+        status: 'completed',
+        conclusion: 'skipped',
+        startedAt: null,
+        completedAt: null,
+        failedSteps: [],
+      },
     ]);
   });
 });
 
 describe('jobLogTail', () => {
-  const log = ['2026-11-14T20:00:00.1234567Z \x1b[36;1mpnpm test\x1b[0m', '', '2026-11-14T20:00:01.0000000Z one', '2026-11-14T20:00:02.0000000Z two'].join('\n');
+  const log = [
+    '2026-11-14T20:00:00.1234567Z \x1b[36;1mpnpm test\x1b[0m',
+    '',
+    '2026-11-14T20:00:01.0000000Z one',
+    '2026-11-14T20:00:02.0000000Z two',
+  ].join('\n');
 
   it('follows the redirect without our token and returns the last lines, cleaned', async () => {
     const signed = 'https://pipelines.example.net/logs/10?sig=abc';
@@ -108,7 +179,14 @@ describe('jobLogTail', () => {
 
 describe('runJobs paging', () => {
   it('follows pages until every job is collected', async () => {
-    const job = (id: number) => ({ id, name: `j${id}`, status: 'completed', conclusion: 'success', started_at: null, completed_at: null });
+    const job = (id: number) => ({
+      id,
+      name: `j${id}`,
+      status: 'completed',
+      conclusion: 'success',
+      started_at: null,
+      completed_at: null,
+    });
     const first = Array.from({ length: 100 }, (_, i) => job(i));
     const { fetcher, calls } = fake({
       [`/repos/${REPO}/actions/runs/1/jobs?per_page=100&page=1`]: { body: { total_count: 101, jobs: first } },

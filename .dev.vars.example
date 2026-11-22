@@ -1,0 +1,18 @@
+# Copy to .dev.vars for `pnpm dev` (wrangler dev). .dev.vars is git-ignored; set no real values in this file.
+# In production the secrets come from `wrangler secret put` (see wrangler.jsonc).
+
+# Secrets
+PSEUDONYM_KEY=
+CF_API_TOKEN=
+ADS_ACCESS_CLIENT_ID=
+ADS_ACCESS_CLIENT_SECRET=
+ADS_GLITCHTIP_TOKEN=
+
+# Plain config (set in wrangler.jsonc vars for deploys)
+CF_ACCOUNT_ID=
+ADS_LOKI_URL=
+ADS_GLITCHTIP_URL=
+ADS_GLITCHTIP_ORG=
+ADS_GLITCHTIP_PROJECT=
+
+# The idea CLI also reads GH_TOKEN or GITHUB_TOKEN (otherwise your gh login) and AGENT_IDEA_URL from the shell.

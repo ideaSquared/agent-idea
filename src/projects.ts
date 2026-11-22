@@ -38,7 +38,14 @@ export const ORG = 'ideaSquared';
 export const PROJECTS: Readonly<Record<string, Project>> = {
   // ADS's Loki `env` label and GlitchTip `environment` carry DEPLOY_ENV (staging | production). Only the staging
   // server's Loki and GlitchTip are behind the tunnel (docs/ads-tunnel.md), so only `--env staging` is served.
-  ads: { team: 'adoptdontshop', repo: 'ideaSquared/adopt-dont-shop', workers: [], logs: 'loki', errors: 'glitchtip', reachable: 'staging' },
+  ads: {
+    team: 'adoptdontshop',
+    repo: 'ideaSquared/adopt-dont-shop',
+    workers: [],
+    logs: 'loki',
+    errors: 'glitchtip',
+    reachable: 'staging',
+  },
   creatrgrid: {
     team: 'creatrgrid',
     repo: 'ideaSquared/creatrgrid',
@@ -54,7 +61,12 @@ export const PROJECTS: Readonly<Record<string, Project>> = {
     ],
     // Production Workers carry no suffix; staging ones end in -staging.
     environments: {
-      staging: ['creatorgrid-api-staging', 'creatorgrid-web-staging', 'creatorgrid-dashboard-staging', 'creatorgrid-admin-staging'],
+      staging: [
+        'creatorgrid-api-staging',
+        'creatorgrid-web-staging',
+        'creatorgrid-dashboard-staging',
+        'creatorgrid-admin-staging',
+      ],
       production: ['creatorgrid-api', 'creatorgrid-web', 'creatorgrid-dashboard', 'creatorgrid-admin'],
     },
   },

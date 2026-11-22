@@ -26,7 +26,10 @@ export const MAX_TEXT = 300;
 const MAX_FRAMES = 10;
 
 const IssueSchema = z.object({
-  id: z.union([z.string(), z.number()]).transform(String).pipe(z.string().regex(/^\d{1,20}$/)),
+  id: z
+    .union([z.string(), z.number()])
+    .transform(String)
+    .pipe(z.string().regex(/^\d{1,20}$/)),
   shortId: z.string().nullish(),
   title: z.string().nullish(),
   culprit: z.string().nullish(),
@@ -55,7 +58,9 @@ const EventSchema = z.object({
 });
 
 const ExceptionSchema = z.object({
-  values: z.array(z.object({ stacktrace: z.object({ frames: z.array(FrameSchema).default([]) }).nullish() })).default([]),
+  values: z
+    .array(z.object({ stacktrace: z.object({ frames: z.array(FrameSchema).default([]) }).nullish() }))
+    .default([]),
 });
 
 function glitchTip(config: GlitchTipConfig, fetcher: Fetch, path: string): Promise<Response> {
@@ -84,8 +89,18 @@ function count(value: string | number | null | undefined): number {
 
 // The project's unresolved issues, most frequent first. Issues that do not parse are dropped. `environment` is one of
 // the fixed names and narrows the list with the Sentry API's `environment` parameter.
-export async function listIssues(config: GlitchTipConfig, limit: number, fetcher: Fetch, environment?: Environment): Promise<IssueSummary[]> {
-  const query = new URLSearchParams({ query: 'is:unresolved', sort: '-count', limit: String(PAGE), ...(environment ? { environment } : {}) });
+export async function listIssues(
+  config: GlitchTipConfig,
+  limit: number,
+  fetcher: Fetch,
+  environment?: Environment,
+): Promise<IssueSummary[]> {
+  const query = new URLSearchParams({
+    query: 'is:unresolved',
+    sort: '-count',
+    limit: String(PAGE),
+    ...(environment ? { environment } : {}),
+  });
   const path = `/api/0/projects/${encodeURIComponent(config.org)}/${encodeURIComponent(config.project)}/issues/?${query}`;
   const body = z.array(z.unknown()).parse(await getJson(config, fetcher, path));
   return body
@@ -130,9 +145,15 @@ const environmentOf = (event: unknown): string | undefined => {
 // With an environment, the latest event of that environment is used (an issue can hold events from both while
 // DEPLOY_ENV rolls out); if none of the recent events matches, there are no frames rather than another
 // environment's.
-export async function latestFrames(config: GlitchTipConfig, issueId: string, fetcher: Fetch, environment?: Environment): Promise<string[]> {
+export async function latestFrames(
+  config: GlitchTipConfig,
+  issueId: string,
+  fetcher: Fetch,
+  environment?: Environment,
+): Promise<string[]> {
   const issue = encodeURIComponent(issueId);
-  if (!environment) return framesOf(EventSchema.parse(await getJson(config, fetcher, `/api/0/issues/${issue}/events/latest/`)));
+  if (!environment)
+    return framesOf(EventSchema.parse(await getJson(config, fetcher, `/api/0/issues/${issue}/events/latest/`)));
   const query = new URLSearchParams({ full: 'true', environment });
   const events = z.array(z.unknown()).parse(await getJson(config, fetcher, `/api/0/issues/${issue}/events/?${query}`));
   const match = events.find((event) => environmentOf(event) === environment);

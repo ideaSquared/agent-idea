@@ -30,7 +30,10 @@ describe('checkTeamMembership', () => {
   it.each([
     ['quota spent', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }],
     ['secondary limit with retry-after', { status: 403, headers: { 'retry-after': '60' } }],
-    ['secondary limit named only in the message', { status: 403, body: { message: 'You have exceeded a secondary rate limit.' } }],
+    [
+      'secondary limit named only in the message',
+      { status: 403, body: { message: 'You have exceeded a secondary rate limit.' } },
+    ],
   ])('throws on a rate-limited 403 (%s) rather than denying', async (_name, limited) => {
     const { fetcher } = fakeGitHub({ '/user': user, [PATH]: limited });
     await expect(checkTeamMembership('t', TEAM, fetcher)).rejects.toThrow();

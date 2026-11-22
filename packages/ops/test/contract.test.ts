@@ -24,7 +24,10 @@ describe('contract v1', () => {
     ['an id that is not group.name', { ...command, id: 'accounts.other' }],
     ['an uppercase group', { ...command, group: 'Accounts', id: 'Accounts.resync' }],
     ['an enum without values', { ...command, fields: [{ name: 'p', type: 'enum', required: true, description: '' }] }],
-    ['a field called json', { ...command, fields: [{ name: 'json', type: 'string', required: true, description: '' }] }],
+    [
+      'a field called json',
+      { ...command, fields: [{ name: 'json', type: 'string', required: true, description: '' }] },
+    ],
     [
       'duplicate field names',
       {

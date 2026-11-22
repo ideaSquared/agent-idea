@@ -76,7 +76,11 @@ const commands: OpsCommand[] = [
 
 function setup(options: { github?: ReturnType<typeof fakeGitHub>; cache?: ReturnType<typeof fakeCache> } = {}) {
   const sink = memorySink();
-  const logger = createLogger({ service: 'creatrgrid-api', fields: ['command', 'mode', 'outcome', 'durationMs'], sink });
+  const logger = createLogger({
+    service: 'creatrgrid-api',
+    fields: ['command', 'mode', 'outcome', 'durationMs'],
+    sink,
+  });
   const github = options.github ?? writer();
   const handler = createOpsHandler({
     product: 'creatrgrid',
@@ -92,7 +96,10 @@ function setup(options: { github?: ReturnType<typeof fakeGitHub>; cache?: Return
     return handler(
       new Request(`https://api.example.com/ops${path}`, {
         ...rest,
-        headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(rest.headers as Record<string, string>) },
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          ...(rest.headers as Record<string, string>),
+        },
       }),
       '/ops',
     );
@@ -312,7 +319,10 @@ describe('a custom authorize', () => {
       cache,
       authorize: async () => ({ outcome: 'allowed', login: 'octocat' }),
     });
-    await handler(new Request('https://api.example.com/ops/catalog', { headers: { authorization: 'Bearer t' } }), '/ops');
+    await handler(
+      new Request('https://api.example.com/ops/catalog', { headers: { authorization: 'Bearer t' } }),
+      '/ops',
+    );
     expect(cache.store.size).toBe(0);
   });
 
@@ -432,7 +442,15 @@ describe('logging', () => {
     const { post, sink } = setup();
     await post({ command: 'accounts.resync', args: { accountId: 'a' }, mode: 'preview' });
     await post({ command: 'accounts.show', args: {}, mode: 'run' });
-    expect(sink.events.map((event) => [event.level, event.message, event.meta?.command, event.meta?.mode, event.meta?.outcome])).toEqual([
+    expect(
+      sink.events.map((event) => [
+        event.level,
+        event.message,
+        event.meta?.command,
+        event.meta?.mode,
+        event.meta?.outcome,
+      ]),
+    ).toEqual([
       ['info', 'ops command ran', 'accounts.resync', 'preview', 'ok'],
       ['warn', 'ops command rejected', 'accounts.show', 'run', 'invalid_argument'],
     ]);
@@ -508,6 +526,7 @@ describe('createOpsHandler configuration', () => {
 
   it('requires exactly one of repo and authorize', () => {
     const authorize = async (): Promise<Access> => ({ outcome: 'allowed', login: 'octocat' });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- dropping `repo` is the point
     const { repo: _repo, ...noAccess } = base;
     // The types already forbid these; the cast reaches the startup check that plain JavaScript callers hit.
     const loose = (options: object) => options as unknown as OpsHandlerOptions;
@@ -521,7 +540,11 @@ describe('createOpsHandler configuration', () => {
 describe('the error type in a failure line', () => {
   const failingWith = (error: unknown) => {
     const sink = memorySink();
-    const logger = createLogger({ service: 'creatrgrid-api', fields: ['command', 'mode', 'outcome', 'durationMs'], sink });
+    const logger = createLogger({
+      service: 'creatrgrid-api',
+      fields: ['command', 'mode', 'outcome', 'durationMs'],
+      sink,
+    });
     const handler = createOpsHandler({
       product: 'creatrgrid',
       repo: REPO,
@@ -556,13 +579,16 @@ describe('the error type in a failure line', () => {
   };
   const named = (name: string) => Object.assign(new Error('x'), { name });
 
-  it.each(['alex', 'ghp_SYNTHETIC_TOKEN_123', 'acct_private_42'])('replaces a made-up name (%s) with UnknownError', async (name) => {
-    const { sink, run } = failingWith(named(name));
-    await run();
-    const logged = JSON.stringify(sink.events);
-    expect(logged).not.toContain(name);
-    expect(logged).toContain('UnknownError');
-  });
+  it.each(['alex', 'ghp_SYNTHETIC_TOKEN_123', 'acct_private_42'])(
+    'replaces a made-up name (%s) with UnknownError',
+    async (name) => {
+      const { sink, run } = failingWith(named(name));
+      await run();
+      const logged = JSON.stringify(sink.events);
+      expect(logged).not.toContain(name);
+      expect(logged).toContain('UnknownError');
+    },
+  );
 
   it('keeps a known type such as TypeError', async () => {
     const { sink, run } = failingWith(new TypeError('alex@example.com'));

@@ -92,7 +92,9 @@ describe('fetchWorkerLogs', () => {
 
   it('asks nothing for a project with no workers', async () => {
     const { fetcher, calls } = fakeGitHub({});
-    expect(await fetchWorkerLogs({ workers: [], from: 1, to: 2, limit: 10 }, { accountId: 'a', apiToken: 't' }, fetcher)).toEqual([]);
+    expect(
+      await fetchWorkerLogs({ workers: [], from: 1, to: 2, limit: 10 }, { accountId: 'a', apiToken: 't' }, fetcher),
+    ).toEqual([]);
     expect(calls).toHaveLength(0);
   });
 

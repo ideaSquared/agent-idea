@@ -30,7 +30,8 @@ describe('toRawEvent', () => {
       durationMs: 41.7,
       errorType: 'TypeError',
       message: 'request failed for alex@example.com from 203.0.113.42',
-      stack: '    at handler (/opt/ads/services/gateway/src/routes/pets.ts:42:13)\n    at run (node:internal/process:7:1)',
+      stack:
+        '    at handler (/opt/ads/services/gateway/src/routes/pets.ts:42:13)\n    at run (node:internal/process:7:1)',
     });
   });
 
@@ -75,7 +76,13 @@ describe('fetchLokiLogs', () => {
 
   it('sends the Access service token and a bounded query, newest first', async () => {
     const { fetcher, calls } = fakeHttp({
-      [PATH]: { status: 200, body: lokiBody([['1794678701000000000', adsLogLine({ message: 'older' })], ['1794678702000000000', adsLogLine({ message: 'newer' })]]) },
+      [PATH]: {
+        status: 200,
+        body: lokiBody([
+          ['1794678701000000000', adsLogLine({ message: 'older' })],
+          ['1794678702000000000', adsLogLine({ message: 'newer' })],
+        ]),
+      },
     });
     const events = await fetchLokiLogs({ from: 1000, to: 2000, level: 'error', limit: 50 }, config, fetcher);
     expect(events.map((event) => event.message)).toEqual(['newer', 'older']);

@@ -1,10 +1,5 @@
 import type { Fetch } from './access.ts';
-import {
-  CatalogSchema,
-  ErrorResponseSchema,
-  InvokeResponseSchema,
-  OpsError,
-} from './contract.ts';
+import { CatalogSchema, ErrorResponseSchema, InvokeResponseSchema, OpsError } from './contract.ts';
 import type { Catalog, InvokeRequest, InvokeResponse } from './contract.ts';
 
 const defaultFetch: Fetch = (input, init) => fetch(input, init);
@@ -50,6 +45,8 @@ export async function invoke(
   fetcher: Fetch = defaultFetch,
 ): Promise<InvokeResponse> {
   const body = JSON.stringify(request);
-  const parsed = InvokeResponseSchema.safeParse(await call(baseUrl, '/invoke', token, fetcher, { method: 'POST', body }));
+  const parsed = InvokeResponseSchema.safeParse(
+    await call(baseUrl, '/invoke', token, fetcher, { method: 'POST', body }),
+  );
   return parsed.success ? parsed.data : unreadable();
 }

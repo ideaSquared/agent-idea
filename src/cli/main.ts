@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { call, ENVIRONMENTS, PROJECT_NAMES, type ApiDeps } from './client.ts';
+import { readVersion } from './version.ts';
 
 export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
 
@@ -9,6 +10,7 @@ export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
   idea errors <project> [--env staging|production] [--limit <n>] [--frames] [--json]    top unresolved errors (ads only), --frames adds file:line
   idea access <project>
   idea mcp                                                    MCP server over stdio, for Claude Code
+  idea --version                                              print the version
 
 Projects: ${PROJECT_NAMES.join(', ')}.
 You need to be in the project's GitHub team. Sign-in: GH_TOKEN, GITHUB_TOKEN or your gh login.
@@ -92,7 +94,14 @@ function shortTime(timestamp: string): string {
 // One line per issue: short id, level, count, last and first seen, title, then the culprit; frames underneath.
 export function formatIssue(issue: Issue): string {
   const culprit = issue.culprit ? `  (${issue.culprit})` : '';
-  const head = [issue.shortId, issue.level.toUpperCase(), `${issue.count}x`, `last ${shortTime(issue.lastSeen)}`, `first ${shortTime(issue.firstSeen)}`, `${issue.title}${culprit}`].join('  ');
+  const head = [
+    issue.shortId,
+    issue.level.toUpperCase(),
+    `${issue.count}x`,
+    `last ${shortTime(issue.lastSeen)}`,
+    `first ${shortTime(issue.firstSeen)}`,
+    `${issue.title}${culprit}`,
+  ].join('  ');
   return `${head}${(issue.frames ?? []).map((frame) => `\n    at ${frame}`).join('')}`;
 }
 
@@ -111,8 +120,10 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
       frames: { type: 'boolean' },
       json: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
+      version: { type: 'boolean' },
     },
   });
+  if (values.version) return deps.out(readVersion());
   const [command, project, runId] = positionals;
   if (values.help || !command) return deps.out(USAGE);
   if (!project) throw new Error(`Which project?\n\n${USAGE}`);
@@ -128,9 +139,13 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
 
   if (command === 'logs') {
     const query = new URLSearchParams(
-      Object.entries({ since: values.since, level: values.level, env: values.env, search: values.search, limit: values.limit }).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
+      Object.entries({
+        since: values.since,
+        level: values.level,
+        env: values.env,
+        search: values.search,
+        limit: values.limit,
+      }).filter((entry): entry is [string, string] => entry[1] !== undefined),
     );
     const body = (await call(deps, `/v1/logs/${encodeURIComponent(project)}?${query}`)) as { events: Event[] };
     if (values.json) return deps.out(JSON.stringify(body.events, null, 2));
@@ -140,7 +155,10 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
   }
 
   if (command === 'runs') {
-    const query = new URLSearchParams({ ...(values.limit ? { limit: values.limit } : {}), ...(values.failed ? { failed: 'true' } : {}) });
+    const query = new URLSearchParams({
+      ...(values.limit ? { limit: values.limit } : {}),
+      ...(values.failed ? { failed: 'true' } : {}),
+    });
     const body = (await call(deps, `/v1/runs/${encodeURIComponent(project)}?${query}`)) as { runs: Run[] };
     if (values.json) return deps.out(JSON.stringify(body.runs, null, 2));
     if (body.runs.length === 0) return deps.out('No runs.');
@@ -156,7 +174,11 @@ export async function run(argv: readonly string[], deps: Deps): Promise<void> {
   }
 
   if (command === 'errors') {
-    const query = new URLSearchParams({ ...(values.env ? { env: values.env } : {}), ...(values.limit ? { limit: values.limit } : {}), ...(values.frames ? { frames: 'true' } : {}) });
+    const query = new URLSearchParams({
+      ...(values.env ? { env: values.env } : {}),
+      ...(values.limit ? { limit: values.limit } : {}),
+      ...(values.frames ? { frames: 'true' } : {}),
+    });
     const body = (await call(deps, `/v1/errors/${encodeURIComponent(project)}?${query}`)) as { issues: Issue[] };
     if (values.json) return deps.out(JSON.stringify(body.issues, null, 2));
     if (body.issues.length === 0) return deps.out('No unresolved issues.');

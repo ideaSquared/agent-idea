@@ -13,7 +13,10 @@ const api = apiFromEnv();
 
 if (argv[0] === 'mcp') {
   // stdout carries the MCP protocol, so diagnostics go to stderr only.
-  if (!api.token) console.error('idea mcp: not signed in, so every tool will fail. Run `gh auth login` or set GH_TOKEN, then restart.');
+  if (!api.token)
+    console.error(
+      'idea mcp: not signed in, so every tool will fail. Run `gh auth login` or set GH_TOKEN, then restart.',
+    );
   serveStdio(api).catch(fail);
 } else {
   run(argv, { ...api, out: (line) => console.log(line) }).catch(fail);

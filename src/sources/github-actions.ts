@@ -83,7 +83,10 @@ export async function listRuns(
   options: { limit: number; failed: boolean },
   fetcher: Fetch,
 ): Promise<RunSummary[]> {
-  const query = new URLSearchParams({ per_page: String(options.limit), ...(options.failed ? { status: 'failure' } : {}) });
+  const query = new URLSearchParams({
+    per_page: String(options.limit),
+    ...(options.failed ? { status: 'failure' } : {}),
+  });
   const [repoBody, runsBody] = await Promise.all([
     getJson(token, fetcher, `/repos/${repo}`),
     getJson(token, fetcher, `/repos/${repo}/actions/runs?${query}`),
@@ -107,8 +110,18 @@ export async function listRuns(
 const JOB_PAGE = 100;
 const MAX_JOB_PAGES = 10;
 
-async function allJobs(repo: string, token: string, runId: number, fetcher: Fetch, page = 1): Promise<z.infer<typeof JobsSchema>['jobs']> {
-  const body = await getJson(token, fetcher, `/repos/${repo}/actions/runs/${runId}/jobs?per_page=${JOB_PAGE}&page=${page}`);
+async function allJobs(
+  repo: string,
+  token: string,
+  runId: number,
+  fetcher: Fetch,
+  page = 1,
+): Promise<z.infer<typeof JobsSchema>['jobs']> {
+  const body = await getJson(
+    token,
+    fetcher,
+    `/repos/${repo}/actions/runs/${runId}/jobs?per_page=${JOB_PAGE}&page=${page}`,
+  );
   const { jobs, total_count: total } = JobsSchema.parse(body);
   if (jobs.length < JOB_PAGE || page * JOB_PAGE >= total || page >= MAX_JOB_PAGES) return jobs;
   return [...jobs, ...(await allJobs(repo, token, runId, fetcher, page + 1))];
@@ -128,6 +141,7 @@ export async function runJobs(repo: string, token: string, runId: number, fetche
 
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 // ANSI colour codes, which CI logs are full of.
+// eslint-disable-next-line no-control-regex -- ESC is what starts an ANSI code
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 // A line longer than this is cut before anything else is done with it, so one huge line can't use up memory.
@@ -161,7 +175,13 @@ export async function tailOf(stream: ReadableStream<Uint8Array>, lines: number):
 }
 
 // The last `lines` lines of a job's log, without timestamps or colour codes. Not yet sanitised.
-export async function jobLogTail(repo: string, token: string, jobId: number, lines: number, fetcher: Fetch): Promise<string[]> {
+export async function jobLogTail(
+  repo: string,
+  token: string,
+  jobId: number,
+  lines: number,
+  fetcher: Fetch,
+): Promise<string[]> {
   // GitHub answers with a redirect to a signed download URL, which must be fetched without our token.
   const response = await github(token, fetcher, `/repos/${repo}/actions/jobs/${jobId}/logs`, { redirect: 'manual' });
   const location = response.headers.get('location');

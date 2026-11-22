@@ -14,8 +14,8 @@ Agent Idea: sanitised logs for every ideaSquared product, gated by GitHub team m
 ## Working here
 
 - TypeScript strict; no `any`; `type` over `interface`; Zod at boundaries.
-- Every behaviour change ships with a test. `pnpm typecheck && pnpm test` before you call it done, and `pnpm build`
+- Every behaviour change ships with a test. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test` before you call it done, and `pnpm build`
   when `src/cli` or `packages/log` change (their `dist/` is committed and CI checks it).
 - The sanitiser (`src/sanitise.ts`) fails closed: anything not on an allowlist is dropped or replaced. Add a line to
   the PII test lines in `test/sanitise.test.ts` for every new kind of leak.
-- Conventional commits.
+- Conventional commits, checked by commitlint on `commit-msg`. After changing `wrangler.jsonc` run `pnpm cf-typegen` and commit `worker-configuration.d.ts`.

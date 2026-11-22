@@ -25,7 +25,9 @@ function failure(error: unknown, api: ApiDeps): CallToolResult {
 
 function query(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams(
-    Object.fromEntries(Object.entries(params).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]]))),
+    Object.fromEntries(
+      Object.entries(params).flatMap(([key, value]) => (value === undefined ? [] : [[key, String(value)]])),
+    ),
   ).toString();
   return search ? `?${search}` : '';
 }
@@ -43,7 +45,11 @@ export function tool<S extends z.ZodRawShape>(definition: {
     input: definition.input,
     handle: async (args, api) => {
       const parsed = schema.safeParse(args);
-      if (!parsed.success) return text(`Invalid input: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`, true);
+      if (!parsed.success)
+        return text(
+          `Invalid input: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`,
+          true,
+        );
       try {
         return text(JSON.stringify(await definition.run(parsed.data, api), null, 2));
       } catch (error) {
@@ -57,7 +63,9 @@ const project = z.enum(PROJECT_NAMES).describe('The ideaSquared project. Call li
 const env = z
   .enum(ENVIRONMENTS)
   .optional()
-  .describe('Only this environment. Omit for all. A project that cannot tell environments apart returns an error instead, and ads only has staging reachable (production returns an error).');
+  .describe(
+    'Only this environment. Omit for all. A project that cannot tell environments apart returns an error instead, and ads only has staging reachable (production returns an error).',
+  );
 const path = (route: string, name: string): string => `/v1/${route}/${encodeURIComponent(name)}`;
 
 const ACCESS_NOTE =
@@ -68,7 +76,8 @@ const ACCESS_NOTE =
 export const TOOLS: readonly Tool[] = [
   tool({
     name: 'list_projects',
-    description: 'Lists the ideaSquared projects whose logs and CI runs Agent Idea can serve. Returns { projects: string[] }. Does not check access; use check_access for that.',
+    description:
+      'Lists the ideaSquared projects whose logs and CI runs Agent Idea can serve. Returns { projects: string[] }. Does not check access; use check_access for that.',
     input: {},
     run: async () => ({ projects: PROJECT_NAMES }),
   }),
@@ -85,14 +94,27 @@ export const TOOLS: readonly Tool[] = [
       `search matches the sanitised events only. ${ACCESS_NOTE}`,
     input: {
       project,
-      since_hours: z.number().positive().max(168).optional().describe('How far back to look, in hours. Default 1, max 168 (7 days).'),
+      since_hours: z
+        .number()
+        .positive()
+        .max(168)
+        .optional()
+        .describe('How far back to look, in hours. Default 1, max 168 (7 days).'),
       level: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Only events at this level.'),
       env,
-      search: z.string().min(1).max(100).optional().describe('Case-insensitive text to match in message, route, service or error type.'),
+      search: z
+        .string()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe('Case-insensitive text to match in message, route, service or error type.'),
       limit: z.number().int().min(1).max(200).optional().describe('Most events to return. Default 50, max 200.'),
     },
     run: (args, api) =>
-      call(api, `${path('logs', args.project)}${query({ since: args.since_hours, level: args.level, env: args.env, search: args.search, limit: args.limit })}`),
+      call(
+        api,
+        `${path('logs', args.project)}${query({ since: args.since_hours, level: args.level, env: args.env, search: args.search, limit: args.limit })}`,
+      ),
   }),
   tool({
     name: 'list_runs',
@@ -104,30 +126,36 @@ export const TOOLS: readonly Tool[] = [
       failed: z.boolean().optional().describe('Only failed runs.'),
       limit: z.number().int().min(1).max(50).optional().describe('Most runs to return. Default 10, max 50.'),
     },
-    run: (args, api) => call(api, `${path('runs', args.project)}${query({ failed: args.failed ? true : undefined, limit: args.limit })}`),
+    run: (args, api) =>
+      call(api, `${path('runs', args.project)}${query({ failed: args.failed ? true : undefined, limit: args.limit })}`),
   }),
   tool({
     name: 'get_run',
-    description:
-      `Fetches one GitHub Actions run's jobs. Returns { jobs }: each with name, status, conclusion and failedSteps, plus log (the last lines of the job's log) for failed jobs. ${ACCESS_NOTE}`,
+    description: `Fetches one GitHub Actions run's jobs. Returns { jobs }: each with name, status, conclusion and failedSteps, plus log (the last lines of the job's log) for failed jobs. ${ACCESS_NOTE}`,
     input: {
       project,
       run_id: z.number().int().positive().describe('The run id, as list_runs returns it.'),
-      tail: z.number().int().min(1).max(300).optional().describe("Lines of each failed job's log to return. Default 80, max 300."),
+      tail: z
+        .number()
+        .int()
+        .min(1)
+        .max(300)
+        .optional()
+        .describe("Lines of each failed job's log to return. Default 80, max 300."),
     },
     run: (args, api) => call(api, `${path('runs', args.project)}/${args.run_id}${query({ tail: args.tail })}`),
   }),
   tool({
     name: 'get_errors',
-    description:
-      `Lists the busiest unresolved errors from the project's error tracker (GlitchTip; only ads has one). Returns { issues }: each with shortId, level, count, firstSeen, lastSeen, a scrubbed title and culprit, and with frames=true the latest event's stack frames as file:line. Projects without an error tracker return an error. ${ACCESS_NOTE}`,
+    description: `Lists the busiest unresolved errors from the project's error tracker (GlitchTip; only ads has one). Returns { issues }: each with shortId, level, count, firstSeen, lastSeen, a scrubbed title and culprit, and with frames=true the latest event's stack frames as file:line. Projects without an error tracker return an error. ${ACCESS_NOTE}`,
     input: {
       project,
       env,
       limit: z.number().int().min(1).max(25).optional().describe('Issues to return. Default 10, max 25.'),
       frames: z.boolean().optional().describe("Add each issue's latest stack frames (file:line)."),
     },
-    run: (args, api) => call(api, `${path('errors', args.project)}${query({ env: args.env, limit: args.limit, frames: args.frames })}`),
+    run: (args, api) =>
+      call(api, `${path('errors', args.project)}${query({ env: args.env, limit: args.limit, frames: args.frames })}`),
   }),
 ];
 
@@ -138,7 +166,11 @@ export function createServer(api: ApiDeps, tools: readonly Tool[] = TOOLS): McpS
   for (const item of tools) {
     server.registerTool(
       item.name,
-      { description: item.description, inputSchema: item.input, annotations: { readOnlyHint: true, openWorldHint: true } },
+      {
+        description: item.description,
+        inputSchema: item.input,
+        annotations: { readOnlyHint: true, openWorldHint: true },
+      },
       (args) => item.handle(args, api),
     );
   }

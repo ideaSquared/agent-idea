@@ -2,9 +2,7 @@ import { z } from 'zod';
 
 // Ported from agent-idea's src/access.ts: write access to a repo, decided by GitHub with the caller's own token.
 export type Access =
-  | { outcome: 'allowed'; login: string }
-  | { outcome: 'denied'; login: string }
-  | { outcome: 'unauthenticated' };
+  { outcome: 'allowed'; login: string } | { outcome: 'denied'; login: string } | { outcome: 'unauthenticated' };
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 

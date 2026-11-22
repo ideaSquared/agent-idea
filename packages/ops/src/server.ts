@@ -1,13 +1,7 @@
 import { cachedWriteAccess, checkWriteAccess } from './access.ts';
 import type { Access, Fetch, OpsCache } from './access.ts';
 import { validateArgs } from './args.ts';
-import {
-  CommandSchema,
-  InvokeRequestSchema,
-  OPS_CONTRACT_VERSION,
-  OPS_ERROR_STATUS,
-  OpsError,
-} from './contract.ts';
+import { CommandSchema, InvokeRequestSchema, OPS_CONTRACT_VERSION, OPS_ERROR_STATUS, OpsError } from './contract.ts';
 import type { Args, Catalog, Command, InvokeResponse, Mode } from './contract.ts';
 
 export type OpsContext = {
@@ -45,8 +39,7 @@ export type OpsAuthorize = (token: string, ctx: { fetch: Fetch }) => Promise<Acc
 // a startup error.
 type OpsAccess =
   // "owner/name": callers need write access to this GitHub repo.
-  | { repo: string; authorize?: undefined }
-  | { repo?: undefined; authorize: OpsAuthorize };
+  { repo: string; authorize?: undefined } | { repo?: undefined; authorize: OpsAuthorize };
 
 export type OpsHandlerOptions = OpsAccess & {
   product: string;
@@ -163,7 +156,8 @@ export function createOpsHandler(options: OpsHandlerOptions): OpsHandler {
     const token = bearerToken(request);
     const access: Access = authorize ? await callAuthorize(authorize, token) : await builtIn(token);
     if (access.outcome === 'unauthenticated') throw new OpsError('unauthenticated', 'the GitHub token was rejected');
-    if (access.outcome === 'denied') throw new OpsError('forbidden', authorize ? 'access denied' : 'write access to the repo is required');
+    if (access.outcome === 'denied')
+      throw new OpsError('forbidden', authorize ? 'access denied' : 'write access to the repo is required');
     return access.login;
   };
 

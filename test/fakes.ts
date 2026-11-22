@@ -69,14 +69,18 @@ export function adsLogLine(overrides: Record<string, unknown> = {}): string {
     error: {
       type: 'TypeError',
       message: 'cannot read owner of Alex Jenkins',
-      stack: 'TypeError: cannot read owner of Alex Jenkins at db.internal:5432\n    at handler (/opt/ads/services/gateway/src/routes/pets.ts:42:13)\n    at run (node:internal/process:7:1)',
+      stack:
+        'TypeError: cannot read owner of Alex Jenkins at db.internal:5432\n    at handler (/opt/ads/services/gateway/src/routes/pets.ts:42:13)\n    at run (node:internal/process:7:1)',
     },
     ...overrides,
   });
 }
 
 // A Loki query_range answer holding these lines, one stream per entry.
-export function lokiBody(entries: ReadonlyArray<readonly [string, string]>, labels: Record<string, string> = { service: 'gateway', env: 'production', level: 'error' }) {
+export function lokiBody(
+  entries: ReadonlyArray<readonly [string, string]>,
+  labels: Record<string, string> = { service: 'gateway', env: 'production', level: 'error' },
+) {
   return {
     status: 'success',
     data: { resultType: 'streams', result: entries.map(([ns, line]) => ({ stream: labels, values: [[ns, line]] })) },
@@ -118,7 +122,16 @@ export function glitchTipEvent() {
               stacktrace: {
                 frames: [
                   { filename: 'node:internal/process', lineNo: 7, inApp: false },
-                  { filename: '/opt/ads/services/gateway/src/routes/pets.ts', absPath: '/opt/ads/services/gateway/src/routes/pets.ts', lineNo: 42, colNo: 13, function: 'handler', inApp: true, context: [[42, 'const email = "alex@example.com"']], vars: { email: 'alex@example.com' } },
+                  {
+                    filename: '/opt/ads/services/gateway/src/routes/pets.ts',
+                    absPath: '/opt/ads/services/gateway/src/routes/pets.ts',
+                    lineNo: 42,
+                    colNo: 13,
+                    function: 'handler',
+                    inApp: true,
+                    context: [[42, 'const email = "alex@example.com"']],
+                    vars: { email: 'alex@example.com' },
+                  },
                   { filename: '/opt/ads/services/gateway/src/lib/owner.ts', lineNo: 9, inApp: true },
                 ],
               },

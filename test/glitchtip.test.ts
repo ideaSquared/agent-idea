@@ -53,7 +53,9 @@ describe('listIssues', () => {
   });
 
   it('replaces a short id that is not a plain id', async () => {
-    const { fetcher } = fakeHttp({ [ISSUES]: { status: 200, body: [glitchTipIssue({ shortId: 'https://x.example/alex' })] } });
+    const { fetcher } = fakeHttp({
+      [ISSUES]: { status: 200, body: [glitchTipIssue({ shortId: 'https://x.example/alex' })] },
+    });
     expect((await listIssues(config, 5, fetcher))[0]?.shortId).toBe('42');
   });
 
@@ -71,7 +73,18 @@ describe('latestFrames', () => {
   });
 
   it('with an environment, uses the latest event of that environment, not a newer one from another', async () => {
-    const production = { ...glitchTipEvent(), environment: 'production', entries: [{ type: 'exception', data: { values: [{ stacktrace: { frames: [{ filename: '/opt/ads/src/prod-only.ts', lineNo: 1, inApp: true }] } }] } }] };
+    const production = {
+      ...glitchTipEvent(),
+      environment: 'production',
+      entries: [
+        {
+          type: 'exception',
+          data: {
+            values: [{ stacktrace: { frames: [{ filename: '/opt/ads/src/prod-only.ts', lineNo: 1, inApp: true }] } }],
+          },
+        },
+      ],
+    };
     const staging = { ...glitchTipEvent(), tags: [{ key: 'environment', value: 'staging' }] };
     const { fetcher, calls } = fakeHttp({ '/api/0/issues/42/events/': { status: 200, body: [production, staging] } });
     const frames = await latestFrames(config, '42', fetcher, 'staging');
@@ -80,7 +93,7 @@ describe('latestFrames', () => {
     expect(calls.some(({ url }) => url.includes('environment=staging') && url.includes('full=true'))).toBe(true);
   });
 
-  it('with an environment and no matching event, returns no frames rather than another environment\'s', async () => {
+  it("with an environment and no matching event, returns no frames rather than another environment's", async () => {
     const production = { ...glitchTipEvent(), environment: 'production' };
     const { fetcher } = fakeHttp({ '/api/0/issues/42/events/': { status: 200, body: [production] } });
     expect(await latestFrames(config, '42', fetcher, 'staging')).toEqual([]);

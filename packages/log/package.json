@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "private": true,
   "description": "Structured logging for ideaSquared products, modelled on Monzo's slog: fixed messages, declared fields, no personal data.",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

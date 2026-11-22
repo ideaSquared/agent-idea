@@ -49,9 +49,20 @@ describe('createLogger', () => {
   });
 
   it('refuses to declare a field that holds personal data or a secret', () => {
-    ['email', 'userEmail', 'phone', 'name', 'displayName', 'address', 'postcode', 'ip', 'password', 'apiToken', 'sessionId', 'steamId'].forEach(
-      (field) => expect(() => createLogger({ service: 's', fields: [field] })).toThrow(field),
-    );
+    [
+      'email',
+      'userEmail',
+      'phone',
+      'name',
+      'displayName',
+      'address',
+      'postcode',
+      'ip',
+      'password',
+      'apiToken',
+      'sessionId',
+      'steamId',
+    ].forEach((field) => expect(() => createLogger({ service: 's', fields: [field] })).toThrow(field));
   });
 
   it('allows the short list of harmless names the rule would otherwise catch', () => {
@@ -60,13 +71,19 @@ describe('createLogger', () => {
   });
 
   it('allows ids and ordinary fields', () => {
-    expect(() => createLogger({ service: 's', fields: ['userId', 'accountId', 'platform', 'status', 'count'] })).not.toThrow();
+    expect(() =>
+      createLogger({ service: 's', fields: ['userId', 'accountId', 'platform', 'status', 'count'] }),
+    ).not.toThrow();
   });
 
   it('records an error with its type, message and stack', () => {
     const { log, events } = setup();
     log.error('sync failed', { accountId: 'acct_1' }, new TypeError('boom'));
-    expect(events[0]?.error).toMatchObject({ type: 'TypeError', message: 'boom', stack: expect.stringContaining('TypeError') });
+    expect(events[0]?.error).toMatchObject({
+      type: 'TypeError',
+      message: 'boom',
+      stack: expect.stringContaining('TypeError'),
+    });
   });
 
   it('records a thrown non-error as text', () => {
@@ -97,7 +114,11 @@ describe('createLogger', () => {
   it('writes one JSON line to the console at the matching level by default', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     createLogger({ service: 's', fields: ['count'] }).warn('slow', { count: 2 });
-    expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({ level: 'warn', message: 'slow', meta: { count: 2 } });
+    expect(JSON.parse(String(warn.mock.calls[0]?.[0]))).toMatchObject({
+      level: 'warn',
+      message: 'slow',
+      meta: { count: 2 },
+    });
     warn.mockRestore();
   });
 });
