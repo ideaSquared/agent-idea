@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { call, ENVIRONMENTS, PROJECT_NAMES } from "./client.js";
+import { readVersion } from "./version.js";
 export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
 
   idea logs <project> [--since <hours>] [--level debug|info|warn|error] [--env staging|production] [--search <text>] [--limit <n>] [--json]
@@ -8,6 +9,7 @@ export const USAGE = `Agent Idea: sanitised logs for ideaSquared products.
   idea errors <project> [--env staging|production] [--limit <n>] [--frames] [--json]    top unresolved errors (ads only), --frames adds file:line
   idea access <project>
   idea mcp                                                    MCP server over stdio, for Claude Code
+  idea --version                                              print the version
 
 Projects: ${PROJECT_NAMES.join(', ')}.
 You need to be in the project's GitHub team. Sign-in: GH_TOKEN, GITHUB_TOKEN or your gh login.
@@ -69,8 +71,11 @@ export async function run(argv, deps) {
             frames: { type: 'boolean' },
             json: { type: 'boolean' },
             help: { type: 'boolean', short: 'h' },
+            version: { type: 'boolean' },
         },
     });
+    if (values.version)
+        return deps.out(readVersion());
     const [command, project, runId] = positionals;
     if (values.help || !command)
         return deps.out(USAGE);
