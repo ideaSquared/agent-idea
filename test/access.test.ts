@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cachedTeamMembership, checkTeamMembership } from '../src/access.ts';
-import { fakeGitHub, fakeKv } from './fakes.ts';
+import { fakeGitHub } from './fakes.ts';
+import { accessCache, cachedKeys } from './kv.ts';
 
 const TEAM = { org: 'ideaSquared', team: 'creatrgrid' };
 const PATH = '/orgs/ideaSquared/teams/creatrgrid/memberships/octocat';
@@ -97,7 +98,7 @@ describe('checkTeamMembership', () => {
 
 describe('cachedTeamMembership', () => {
   it('asks GitHub once, then answers from the cache', async () => {
-    const kv = fakeKv();
+    const kv = accessCache();
     const { fetcher, calls } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
     await cachedTeamMembership('t', TEAM, kv, fetcher);
     expect(await cachedTeamMembership('t', TEAM, kv, fetcher)).toEqual({ outcome: 'allowed', login: 'octocat' });
@@ -105,7 +106,7 @@ describe('cachedTeamMembership', () => {
   });
 
   it('keeps teams apart', async () => {
-    const kv = fakeKv();
+    const kv = accessCache();
     const { fetcher, calls } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
     await cachedTeamMembership('t', TEAM, kv, fetcher);
     const other = await cachedTeamMembership('t', { org: 'ideaSquared', team: 'pairflix' }, kv, fetcher);
@@ -114,7 +115,7 @@ describe('cachedTeamMembership', () => {
   });
 
   it('remembers the expiry with the answer', async () => {
-    const kv = fakeKv();
+    const kv = accessCache();
     const expiring = { ...user, headers: { 'github-authentication-token-expiration': '2027-11-21 13:20:00 UTC' } };
     const { fetcher } = fakeGitHub({ '/user': expiring, [PATH]: { status: 200, body: { state: 'active' } } });
     await cachedTeamMembership('t', TEAM, kv, fetcher);
@@ -123,24 +124,25 @@ describe('cachedTeamMembership', () => {
   });
 
   it('never stores the token', async () => {
-    const kv = fakeKv();
+    const kv = accessCache();
     const { fetcher } = fakeGitHub({ '/user': user, [PATH]: { status: 200, body: { state: 'active' } } });
     await cachedTeamMembership('very-secret-token', TEAM, kv, fetcher);
-    expect(JSON.stringify([...kv.store.entries()])).not.toContain('very-secret-token');
+    const entries = await Promise.all((await cachedKeys(kv)).map(async (key) => [key, await kv.get(key)]));
+    expect(JSON.stringify(entries)).not.toContain('very-secret-token');
   });
 
   it('does not cache a rate-limited 403', async () => {
     const limited = { status: 403, headers: { 'retry-after': '60' } };
     const { fetcher } = fakeGitHub({ '/user': user, [PATH]: limited });
-    const cache = fakeKv();
+    const cache = accessCache();
     await expect(cachedTeamMembership('t', TEAM, cache, fetcher)).rejects.toThrow();
-    expect(cache.store.size).toBe(0);
+    expect(await cachedKeys(cache)).toHaveLength(0);
   });
 
   it('does not cache a rejected token', async () => {
-    const kv = fakeKv();
+    const kv = accessCache();
     const { fetcher } = fakeGitHub({ '/user': { status: 401 } });
     await cachedTeamMembership('t', TEAM, kv, fetcher);
-    expect(kv.store.size).toBe(0);
+    expect(await cachedKeys(kv)).toHaveLength(0);
   });
 });
