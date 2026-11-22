@@ -5,3 +5,4 @@ node_modules
 pnpm-lock.yaml
 # Prose is hand-written; its tables are wide and stay unpadded.
 *.md
+worker-configuration.d.ts

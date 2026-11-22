@@ -17,20 +17,15 @@ import { latestFrames, listIssues, MAX_TEXT, type GlitchTipConfig } from './sour
 import { fetchLokiLogs, type LokiConfig } from './sources/loki.ts';
 import { fetchWorkerLogs } from './sources/workers-logs.ts';
 
-export type Env = {
-  ACCESS_CACHE: KVNamespace;
-  PSEUDONYM_KEY?: string;
-  CF_ACCOUNT_ID?: string;
-  CF_API_TOKEN?: string;
-  // adopt-dont-shop's Loki and GlitchTip, behind a Cloudflare Tunnel and Access. See docs/ads-tunnel.md.
-  ADS_LOKI_URL?: string;
-  ADS_GLITCHTIP_URL?: string;
-  ADS_GLITCHTIP_ORG?: string;
-  ADS_GLITCHTIP_PROJECT?: string;
-  ADS_GLITCHTIP_TOKEN?: string;
-  ADS_ACCESS_CLIENT_ID?: string;
-  ADS_ACCESS_CLIENT_SECRET?: string;
-};
+// Bindings and vars come from worker-configuration.d.ts (`pnpm cf-typegen`). Every var and secret may be unset, since
+// unconfigured is a valid state (see docs/ads-tunnel.md), so only the KV binding is required. Secrets are set with
+// `wrangler secret put` and are not in wrangler.jsonc, so they are declared here.
+type Secrets =
+  'PSEUDONYM_KEY' | 'CF_API_TOKEN' | 'ADS_GLITCHTIP_TOKEN' | 'ADS_ACCESS_CLIENT_ID' | 'ADS_ACCESS_CLIENT_SECRET';
+
+export type Env = Pick<Cloudflare.Env, 'ACCESS_CACHE'> &
+  Partial<Omit<Cloudflare.Env, 'ACCESS_CACHE'>> &
+  Partial<Record<Secrets, string>>;
 
 const HOUR = 3_600_000;
 // Workers Logs keeps 7 days.

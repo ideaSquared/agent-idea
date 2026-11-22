@@ -13,6 +13,7 @@
     "deploy": "wrangler deploy",
     "build": "tsc -p tsconfig.build.json && pnpm -C packages/log build && pnpm -C packages/ops build",
     "test": "vitest run",
+    "cf-typegen": "wrangler types --no-strict-vars",
     "typecheck": "tsc && tsc -p packages/log && tsc -p packages/ops",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -24,7 +25,6 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261107.1",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@eslint/js": "^10.0.1",
