@@ -14,7 +14,10 @@ function deps(routes: Record<string, { status: number; body: unknown; headers?: 
     fetch: async (input) => {
       urls.push(input);
       const route = routes[new URL(input).pathname];
-      return Response.json(route?.body ?? { error: 'Not found' }, { status: route?.status ?? 404, headers: route?.headers });
+      return Response.json(route?.body ?? { error: 'Not found' }, {
+        status: route?.status ?? 404,
+        headers: route?.headers,
+      });
     },
   };
   return { value, lines, urls, warnings };
@@ -32,7 +35,9 @@ const event = {
 
 describe('formatEvent', () => {
   it('puts time, level, service and request on one line', () => {
-    expect(formatEvent(event)).toBe('2026-11-14 17:51:41Z  ERROR  pairflix-api  /api/households/:param/pick 500 78ms  pick failed');
+    expect(formatEvent(event)).toBe(
+      '2026-11-14 17:51:41Z  ERROR  pairflix-api  /api/households/:param/pick 500 78ms  pick failed',
+    );
   });
 
   it('prints stack frames underneath', () => {
@@ -68,7 +73,9 @@ describe('idea logs', () => {
 
   it('rejects an unknown environment before calling the API', async () => {
     const { value, urls } = deps({});
-    await expect(run(['logs', 'pairflix', '--env', 'dev'], value)).rejects.toThrow("--env must be staging or production, not 'dev'");
+    await expect(run(['logs', 'pairflix', '--env', 'dev'], value)).rejects.toThrow(
+      "--env must be staging or production, not 'dev'",
+    );
     expect(urls).toEqual([]);
   });
 
@@ -79,7 +86,9 @@ describe('idea logs', () => {
   });
 
   it("shows the API's reason when access is refused", async () => {
-    const { value } = deps({ '/v1/logs/pairflix': { status: 403, body: { error: 'You need to be in the ideaSquared/pairflix team' } } });
+    const { value } = deps({
+      '/v1/logs/pairflix': { status: 403, body: { error: 'You need to be in the ideaSquared/pairflix team' } },
+    });
     await expect(run(['logs', 'pairflix'], value)).rejects.toThrow('You need to be in the ideaSquared/pairflix team');
   });
 
@@ -139,7 +148,17 @@ it('prints usage with no command', async () => {
 });
 
 describe('idea runs', () => {
-  const sampleRun = { id: 5, number: 9, workflow: 'CI', event: 'push', status: 'completed', conclusion: 'failure', branch: 'main', sha: '1234567', createdAt: '2026-11-14T20:00:00Z' };
+  const sampleRun = {
+    id: 5,
+    number: 9,
+    workflow: 'CI',
+    event: 'push',
+    status: 'completed',
+    conclusion: 'failure',
+    branch: 'main',
+    sha: '1234567',
+    createdAt: '2026-11-14T20:00:00Z',
+  };
 
   it('prints one line per run with the id to look at', async () => {
     const { value, lines } = deps({ '/v1/runs/pairflix': { status: 200, body: { runs: [sampleRun] } } });
@@ -159,7 +178,12 @@ describe('idea run', () => {
     const { value, lines } = deps({
       '/v1/runs/pairflix/5': {
         status: 200,
-        body: { jobs: [{ name: 'test', status: 'completed', conclusion: 'failure', failedSteps: ['Test'], log: ['boom'] }, { name: 'deploy', status: 'completed', conclusion: 'skipped', failedSteps: [] }] },
+        body: {
+          jobs: [
+            { name: 'test', status: 'completed', conclusion: 'failure', failedSteps: ['Test'], log: ['boom'] },
+            { name: 'deploy', status: 'completed', conclusion: 'skipped', failedSteps: [] },
+          ],
+        },
       },
     });
     await run(['run', 'pairflix', '5'], value);
@@ -184,7 +208,9 @@ describe('idea errors', () => {
   };
 
   it('prints one issue per line, busiest first, with frames underneath', async () => {
-    const { value, lines } = deps({ '/v1/errors/ads': { status: 200, body: { issues: [{ ...issue, frames: ['src/routes/pets.ts:42'] }] } } });
+    const { value, lines } = deps({
+      '/v1/errors/ads': { status: 200, body: { issues: [{ ...issue, frames: ['src/routes/pets.ts:42'] }] } },
+    });
     await run(['errors', 'ads', '--frames'], value);
     expect(lines).toEqual([
       'ADS-1A  ERROR  17x  last 2026-11-14 17:00Z  first 2026-11-13 09:00Z  TypeError: no pet for [email]  (GET /api/v1/users/:param)\n    at src/routes/pets.ts:42',
@@ -210,7 +236,9 @@ describe('idea errors', () => {
   });
 
   it("shows the API's reason for a project with no error tracker", async () => {
-    const { value } = deps({ '/v1/errors/pairflix': { status: 404, body: { error: 'No error tracker for pairflix' } } });
+    const { value } = deps({
+      '/v1/errors/pairflix': { status: 404, body: { error: 'No error tracker for pairflix' } },
+    });
     await expect(run(['errors', 'pairflix'], value)).rejects.toThrow('No error tracker for pairflix');
   });
 });
@@ -218,9 +246,14 @@ describe('idea errors', () => {
 describe('idea errors --env', () => {
   it('passes --env to the API and shows its refusal', async () => {
     const { value, urls } = deps({
-      '/v1/errors/ads': { status: 400, body: { error: "Project 'ads' has no way to tell environments apart, so --env is not available" } },
+      '/v1/errors/ads': {
+        status: 400,
+        body: { error: "Project 'ads' has no way to tell environments apart, so --env is not available" },
+      },
     });
-    await expect(run(['errors', 'ads', '--env', 'production'], value)).rejects.toThrow("Project 'ads' has no way to tell environments apart");
+    await expect(run(['errors', 'ads', '--env', 'production'], value)).rejects.toThrow(
+      "Project 'ads' has no way to tell environments apart",
+    );
     expect(new URL(urls[0] ?? '').searchParams.get('env')).toBe('production');
   });
 });

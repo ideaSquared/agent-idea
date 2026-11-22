@@ -1,7 +1,15 @@
 import { createLogger } from '@ideasquared/log';
 import { z } from 'zod';
 import { cachedTeamMembership } from './access.ts';
-import { ENVIRONMENTS, noEnvironments, notReachable, ORG, PROJECTS, type Environment, type Project } from './projects.ts';
+import {
+  ENVIRONMENTS,
+  noEnvironments,
+  notReachable,
+  ORG,
+  PROJECTS,
+  type Environment,
+  type Project,
+} from './projects.ts';
 import { routeRules, type RouteRules } from './route-words.ts';
 import { sanitiseEvent, scrubText, templateRoute, type SanitisedEvent } from './sanitise.ts';
 import { jobLogTail, listRuns, runJobs } from './sources/github-actions.ts';
@@ -43,7 +51,12 @@ const log = createLogger({ service: 'agent-idea', fields: ['actor', 'project', '
 
 // Who asked for what, and the outcome. Never the results. The staff member's GitHub login is the audit `actor`.
 function audit(entry: { login?: string; project: string; route: string; outcome: string }): void {
-  log.info('access checked', { actor: entry.login ?? null, project: entry.project, route: entry.route, outcome: entry.outcome });
+  log.info('access checked', {
+    actor: entry.login ?? null,
+    project: entry.project,
+    route: entry.route,
+    outcome: entry.outcome,
+  });
 }
 
 const LogsParamsSchema = z.object({
@@ -57,7 +70,9 @@ const LogsParamsSchema = z.object({
 // Search runs on sanitised events only, so it can never match data the sanitiser removed.
 function matches(event: SanitisedEvent, search: string): boolean {
   const needle = search.toLowerCase();
-  return [event.message, event.route, event.service, event.errorType].some((field) => field?.toLowerCase().includes(needle));
+  return [event.message, event.route, event.service, event.errorType].some((field) =>
+    field?.toLowerCase().includes(needle),
+  );
 }
 
 // Unconfigured is a valid state: an empty var or a missing secret means "not set up yet", not an error.
@@ -67,7 +82,12 @@ function lokiConfig(env: Env): LokiConfig | undefined {
 }
 
 function glitchTipConfig(env: Env): GlitchTipConfig | undefined {
-  const { ADS_GLITCHTIP_URL: url, ADS_GLITCHTIP_ORG: org, ADS_GLITCHTIP_PROJECT: project, ADS_GLITCHTIP_TOKEN: token } = env;
+  const {
+    ADS_GLITCHTIP_URL: url,
+    ADS_GLITCHTIP_ORG: org,
+    ADS_GLITCHTIP_PROJECT: project,
+    ADS_GLITCHTIP_TOKEN: token,
+  } = env;
   const { ADS_ACCESS_CLIENT_ID: accessClientId, ADS_ACCESS_CLIENT_SECRET: accessClientSecret } = env;
   return url && org && project && token && accessClientId && accessClientSecret
     ? { url, org, project, token, accessClientId, accessClientSecret }
@@ -91,7 +111,9 @@ async function rawLogs(
     const loki = lokiConfig(env);
     if (!loki) return json({ error: 'ADS logs are not configured' }, 501);
     // A fixed message: an upstream error can quote the body it choked on.
-    return fetchLokiLogs({ ...query, env: environment }, loki, fetch).catch(() => json({ error: 'Loki could not be read' }, 502));
+    return fetchLokiLogs({ ...query, env: environment }, loki, fetch).catch(() =>
+      json({ error: 'Loki could not be read' }, 502),
+    );
   }
   const workers = environment ? project.environments?.[environment] : project.workers;
   if (!workers) return json({ error: noEnvironments(name) }, 400);
@@ -101,11 +123,18 @@ async function rawLogs(
 
 async function logs(url: URL, name: string, project: Project, env: Env, key: string): Promise<Response> {
   const params = LogsParamsSchema.safeParse(Object.fromEntries(url.searchParams));
-  if (!params.success) return json({ error: 'Bad query', details: params.error.issues.map((issue) => issue.message) }, 400);
+  if (!params.success)
+    return json({ error: 'Bad query', details: params.error.issues.map((issue) => issue.message) }, 400);
   const { since, level, env: environment, search, limit } = params.data;
 
   const to = Date.now();
-  const raw = await rawLogs(name, project, env, { from: to - since * HOUR, to, level, limit: search ? SEARCH_SCAN : limit }, environment);
+  const raw = await rawLogs(
+    name,
+    project,
+    env,
+    { from: to - since * HOUR, to, level, limit: search ? SEARCH_SCAN : limit },
+    environment,
+  );
   if (raw instanceof Response) return raw;
   const rules = routeRules(name);
   const settled = await Promise.allSettled(raw.map((event) => sanitiseEvent(event, key, rules)));
@@ -117,7 +146,10 @@ async function logs(url: URL, name: string, project: Project, env: Env, key: str
 const ErrorsParamsSchema = z.object({
   env: z.enum(ENVIRONMENTS).optional(),
   limit: z.coerce.number().int().min(1).max(25).default(10),
-  frames: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  frames: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 // An issue title is usually `Type: message`, and the message is free text that can name a person, so only the
@@ -156,7 +188,11 @@ async function errors(url: URL, name: string, project: Project, env: Env, key: s
       title: issueType(issue.title),
       culprit: (await safeCulprit(issue.culprit, key, rules)).slice(0, MAX_TEXT),
       ...(params.data.frames
-        ? { frames: await Promise.all((await latestFrames(config, id, fetch, environment)).map((frame) => scrubText(frame, key, rules))) }
+        ? {
+            frames: await Promise.all(
+              (await latestFrames(config, id, fetch, environment)).map((frame) => scrubText(frame, key, rules)),
+            ),
+          }
         : {}),
     }));
     return json({ issues: scrubbed });
@@ -168,7 +204,10 @@ async function errors(url: URL, name: string, project: Project, env: Env, key: s
 
 const RunsParamsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
-  failed: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  failed: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 const RunParamsSchema = z.object({
@@ -187,7 +226,9 @@ async function runs(url: URL, name: string, project: Project, token: string, key
   if (!params.success) return badQuery(params.error);
   const rules = routeRules(name);
   const list = await listRuns(project.repo, token, params.data, fetch);
-  const scrubbed = await Promise.all(list.map(async (item) => ({ ...item, workflow: await scrubText(item.workflow, key, rules) })));
+  const scrubbed = await Promise.all(
+    list.map(async (item) => ({ ...item, workflow: await scrubText(item.workflow, key, rules) })),
+  );
   return json({ runs: scrubbed });
 }
 
@@ -202,16 +243,32 @@ async function inBatches<T, R>(items: readonly T[], size: number, work: (item: T
 }
 
 // One run's jobs, with the sanitised tail of each failed job's log.
-async function run(url: URL, name: string, project: Project, token: string, runId: number, key: string): Promise<Response> {
+async function run(
+  url: URL,
+  name: string,
+  project: Project,
+  token: string,
+  runId: number,
+  key: string,
+): Promise<Response> {
   const params = RunParamsSchema.safeParse(Object.fromEntries(url.searchParams));
   if (!params.success) return badQuery(params.error);
   const rules = routeRules(name);
   const scrub = async (text: string): Promise<string> => (await scrubText(text, key, rules)).slice(0, MAX_LINE);
   const jobs = await runJobs(project.repo, token, runId, fetch);
   const named = await Promise.all(
-    jobs.map(async (job) => ({ ...job, name: await scrub(job.name), failedSteps: await Promise.all(job.failedSteps.map(scrub)) })),
+    jobs.map(async (job) => ({
+      ...job,
+      name: await scrub(job.name),
+      failedSteps: await Promise.all(job.failedSteps.map(scrub)),
+    })),
   );
-  const failedIds = new Set(named.filter((job) => job.conclusion === 'failure').slice(0, MAX_LOGGED_JOBS).map((job) => job.id));
+  const failedIds = new Set(
+    named
+      .filter((job) => job.conclusion === 'failure')
+      .slice(0, MAX_LOGGED_JOBS)
+      .map((job) => job.id),
+  );
   const logs = new Map(
     await inBatches([...failedIds], LOG_BATCH, async (id) => {
       const lines = await jobLogTail(project.repo, token, id, params.data.tail, fetch);
@@ -255,7 +312,8 @@ export default {
 
     let response: Response;
     if (route === 'logs') response = await logs(url, name, project, env, key);
-    else if (route === 'runs' && runId !== undefined) response = await run(url, name, project, token, Number(runId), key);
+    else if (route === 'runs' && runId !== undefined)
+      response = await run(url, name, project, token, Number(runId), key);
     else if (route === 'runs') response = await runs(url, name, project, token, key);
     else if (route === 'errors') response = await errors(url, name, project, env, key);
     else response = json({ project: name, team: `${ORG}/${project.team}`, login: access.login, access: 'member' });

@@ -47,7 +47,8 @@ function fail(message: string): never {
 }
 
 function fromText(field: Field, text: string): unknown {
-  if (field.type === 'number') return text.trim() === '' ? fail(`field '${field.name}' must be a number`) : Number(text);
+  if (field.type === 'number')
+    return text.trim() === '' ? fail(`field '${field.name}' must be a number`) : Number(text);
   if (field.type === 'boolean') {
     if (text === 'true') return true;
     if (text === 'false') return false;

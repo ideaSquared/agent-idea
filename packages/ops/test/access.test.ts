@@ -19,7 +19,10 @@ describe('checkWriteAccess', () => {
   });
 
   it('denies read-only access, as on a public repo', async () => {
-    const { fetcher } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ pull: true, push: false, admin: false }) });
+    const { fetcher } = fakeGitHub({
+      '/user': user,
+      [`/repos/${REPO}`]: repoWith({ pull: true, push: false, admin: false }),
+    });
     expect(await checkWriteAccess('t', REPO, fetcher)).toEqual({ outcome: 'denied', login: 'octocat' });
   });
 
@@ -36,7 +39,10 @@ describe('checkWriteAccess', () => {
   });
 
   it("asks GitHub with the caller's own token", async () => {
-    const { fetcher, calls } = fakeGitHub({ '/user': user, [`/repos/${REPO}`]: repoWith({ push: true, admin: false }) });
+    const { fetcher, calls } = fakeGitHub({
+      '/user': user,
+      [`/repos/${REPO}`]: repoWith({ push: true, admin: false }),
+    });
     await checkWriteAccess('callers-token', REPO, fetcher);
     expect(calls.map((call) => call.authorization)).toEqual(['Bearer callers-token', 'Bearer callers-token']);
   });

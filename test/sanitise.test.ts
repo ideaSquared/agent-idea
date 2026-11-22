@@ -31,8 +31,14 @@ const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
   { line: 'redirect to https://gaminginit.com/player/alexj#stats', leaks: ['alexj', 'stats'] },
   // adopt-dont-shop: Loki lines and GlitchTip issue titles and culprits.
   { line: 'TypeError: no pet for alex.jenkins@example.org', leaks: ['alex.jenkins', 'example.org'] },
-  { line: 'duplicate key value violates unique constraint "users_email_key" Key (email)=(sam.o@example.org) already exists', leaks: ['sam.o', 'example.org'] },
-  { line: 'pets.handler in /api/v1/rescues/9b1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e/pets', leaks: ['9b1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e'] },
+  {
+    line: 'duplicate key value violates unique constraint "users_email_key" Key (email)=(sam.o@example.org) already exists',
+    leaks: ['sam.o', 'example.org'],
+  },
+  {
+    line: 'pets.handler in /api/v1/rescues/9b1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e/pets',
+    leaks: ['9b1c2d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e'],
+  },
   { line: 'connect ECONNREFUSED 10.0.4.17:5432', leaks: ['10.0.4.17'] },
   { line: 'X-Forwarded-For: 198.51.100.7, 10.0.0.1', leaks: ['198.51.100.7', '10.0.0.1'] },
   { line: 'refresh_token=abc.def.ghi rejected', leaks: ['abc.def.ghi'] },
@@ -103,12 +109,20 @@ describe('scrubText', () => {
   });
 
   it('tags prefixed and hex ids, keeping the prefix', async () => {
-    const scrubbed = await scrubText('[sync] failed acct_f02ea3fd42cb404c831deb30675c241e and f02ea3fd42cb404c831deb30675c241e', KEY, RULES);
+    const scrubbed = await scrubText(
+      '[sync] failed acct_f02ea3fd42cb404c831deb30675c241e and f02ea3fd42cb404c831deb30675c241e',
+      KEY,
+      RULES,
+    );
     expect(scrubbed).toMatch(/^\[sync\] failed acct_[0-9a-f]{8} and id_[0-9a-f]{8}$/);
   });
 
   it('tags uppercase hex ids too', async () => {
-    const scrubbed = await scrubText('ABCDEFABCDEFABCDEFABCDEFABCDEFAB acct_ABCDEFABCDEFABCDEFABCDEFABCDEFAB', KEY, RULES);
+    const scrubbed = await scrubText(
+      'ABCDEFABCDEFABCDEFABCDEFABCDEFAB acct_ABCDEFABCDEFABCDEFABCDEFABCDEFAB',
+      KEY,
+      RULES,
+    );
     expect(scrubbed).toMatch(/^id_[0-9a-f]{8} acct_[0-9a-f]{8}$/);
   });
 

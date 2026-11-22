@@ -75,7 +75,11 @@ export function toRawEvent(line: string, nanoseconds: string): Record<string, un
   };
 }
 
-export async function fetchLokiLogs(query: LokiQuery, config: LokiConfig, fetcher: Fetch): Promise<Array<Record<string, unknown>>> {
+export async function fetchLokiLogs(
+  query: LokiQuery,
+  config: LokiConfig,
+  fetcher: Fetch,
+): Promise<Array<Record<string, unknown>>> {
   const params = new URLSearchParams({
     query: buildLogQL(query.level, query.env),
     // Loki reads a decimal as seconds, so the millisecond bounds must be whole numbers before adding the zeros.
@@ -92,11 +96,13 @@ export async function fetchLokiLogs(query: LokiQuery, config: LokiConfig, fetche
   if (!response.ok) throw new Error(`Loki answered ${response.status}`);
   const body = ResponseSchema.parse(await response.json());
   if (body.status !== 'success') throw new Error('Loki query failed');
-  return body.data.result
-    .flatMap((stream) => stream.values)
-    // Nanosecond timestamps are too big for a number; padded to one width, they sort as strings.
-    .sort(([a], [b]) => b.padStart(20, '0').localeCompare(a.padStart(20, '0')))
-    .slice(0, query.limit)
-    .map(([nanoseconds, line]) => toRawEvent(line, nanoseconds))
-    .filter((event) => event !== undefined);
+  return (
+    body.data.result
+      .flatMap((stream) => stream.values)
+      // Nanosecond timestamps are too big for a number; padded to one width, they sort as strings.
+      .sort(([a], [b]) => b.padStart(20, '0').localeCompare(a.padStart(20, '0')))
+      .slice(0, query.limit)
+      .map(([nanoseconds, line]) => toRawEvent(line, nanoseconds))
+      .filter((event) => event !== undefined)
+  );
 }

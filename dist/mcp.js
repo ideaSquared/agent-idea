@@ -63,10 +63,20 @@ export const TOOLS = [
             `search matches the sanitised events only. ${ACCESS_NOTE}`,
         input: {
             project,
-            since_hours: z.number().positive().max(168).optional().describe('How far back to look, in hours. Default 1, max 168 (7 days).'),
+            since_hours: z
+                .number()
+                .positive()
+                .max(168)
+                .optional()
+                .describe('How far back to look, in hours. Default 1, max 168 (7 days).'),
             level: z.enum(['debug', 'info', 'warn', 'error']).optional().describe('Only events at this level.'),
             env,
-            search: z.string().min(1).max(100).optional().describe('Case-insensitive text to match in message, route, service or error type.'),
+            search: z
+                .string()
+                .min(1)
+                .max(100)
+                .optional()
+                .describe('Case-insensitive text to match in message, route, service or error type.'),
             limit: z.number().int().min(1).max(200).optional().describe('Most events to return. Default 50, max 200.'),
         },
         run: (args, api) => call(api, `${path('logs', args.project)}${query({ since: args.since_hours, level: args.level, env: args.env, search: args.search, limit: args.limit })}`),
@@ -88,7 +98,13 @@ export const TOOLS = [
         input: {
             project,
             run_id: z.number().int().positive().describe('The run id, as list_runs returns it.'),
-            tail: z.number().int().min(1).max(300).optional().describe("Lines of each failed job's log to return. Default 80, max 300."),
+            tail: z
+                .number()
+                .int()
+                .min(1)
+                .max(300)
+                .optional()
+                .describe("Lines of each failed job's log to return. Default 80, max 300."),
         },
         run: (args, api) => call(api, `${path('runs', args.project)}/${args.run_id}${query({ tail: args.tail })}`),
     }),
@@ -108,7 +124,11 @@ export const VERSION = '0.1.0';
 export function createServer(api, tools = TOOLS) {
     const server = new McpServer({ name: 'agent-idea', version: VERSION });
     for (const item of tools) {
-        server.registerTool(item.name, { description: item.description, inputSchema: item.input, annotations: { readOnlyHint: true, openWorldHint: true } }, (args) => item.handle(args, api));
+        server.registerTool(item.name, {
+            description: item.description,
+            inputSchema: item.input,
+            annotations: { readOnlyHint: true, openWorldHint: true },
+        }, (args) => item.handle(args, api));
     }
     return server;
 }

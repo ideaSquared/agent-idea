@@ -1,0 +1,7 @@
+# Build output and generated files.
+dist
+node_modules
+.wrangler
+pnpm-lock.yaml
+# Prose is hand-written; its tables are wide and stay unpadded.
+*.md

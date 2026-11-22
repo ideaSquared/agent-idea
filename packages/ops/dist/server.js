@@ -1,6 +1,6 @@
 import { cachedWriteAccess, checkWriteAccess } from "./access.js";
 import { validateArgs } from "./args.js";
-import { CommandSchema, InvokeRequestSchema, OPS_CONTRACT_VERSION, OPS_ERROR_STATUS, OpsError, } from "./contract.js";
+import { CommandSchema, InvokeRequestSchema, OPS_CONTRACT_VERSION, OPS_ERROR_STATUS, OpsError } from "./contract.js";
 function json(status, body) {
     return new Response(JSON.stringify(body), {
         status,

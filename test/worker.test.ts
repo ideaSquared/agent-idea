@@ -66,7 +66,11 @@ describe('GET /v1/access/:project', () => {
     vi.stubGlobal(
       'fetch',
       fakeGitHub({
-        '/user': { status: 200, body: { login: 'octocat' }, headers: { 'github-authentication-token-expiration': '2027-11-21 13:20:00 UTC' } },
+        '/user': {
+          status: 200,
+          body: { login: 'octocat' },
+          headers: { 'github-authentication-token-expiration': '2027-11-21 13:20:00 UTC' },
+        },
         [TEAM('pairflix')]: member(true),
       }).fetcher,
     );
@@ -117,7 +121,10 @@ describe('GET /v1/access/:project', () => {
     ['ideasquared-bot', 'ops-platform'],
   ])('checks %s against the %s team', async (project, team) => {
     const { calls } = stubGitHub(true);
-    vi.stubGlobal('fetch', fakeGitHub({ '/user': { status: 200, body: { login: 'octocat' } }, [TEAM(team)]: member(true) }).fetcher);
+    vi.stubGlobal(
+      'fetch',
+      fakeGitHub({ '/user': { status: 200, body: { login: 'octocat' } }, [TEAM(team)]: member(true) }).fetcher,
+    );
     const response = await worker.fetch(request(`/v1/access/${project}`, 't'), env());
     expect(response.status).toBe(200);
     expect(((await response.json()) as { team: string }).team).toBe(`ideaSquared/${team}`);
@@ -146,7 +153,10 @@ describe('GET /v1/access/:project', () => {
     await worker.fetch(request('/v1/access/pairflix', 'secret-token'), env());
     const lines = log.mock.calls.map((call) => String(call[0]));
     expect(lines.map((line) => JSON.parse(line))).toEqual([
-      expect.objectContaining({ message: 'access checked', meta: { actor: 'octocat', project: 'pairflix', route: 'access', outcome: 'allowed' } }),
+      expect.objectContaining({
+        message: 'access checked',
+        meta: { actor: 'octocat', project: 'pairflix', route: 'access', outcome: 'allowed' },
+      }),
     ]);
     expect(lines.join()).not.toContain('secret-token');
     log.mockRestore();
@@ -162,7 +172,9 @@ describe('GET /v1/logs/:project', () => {
   const event = {
     timestamp: 1794678701868,
     $metadata: { service: 'pairflix-api', level: 'error', message: 'pick failed for alex@example.com' },
-    $workers: { event: { path: '/api/households/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/pick', response: { status: 500 } } },
+    $workers: {
+      event: { path: '/api/households/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/pick', response: { status: 500 } },
+    },
   };
 
   it('returns sanitised events', async () => {
@@ -185,7 +197,10 @@ describe('GET /v1/logs/:project', () => {
   });
 
   it('searches only sanitised events, so hidden data cannot be found', async () => {
-    const slugEvent = { ...event, $metadata: { ...event.$metadata, message: 'GET https://x.example/api/creators/paragonjenko' } };
+    const slugEvent = {
+      ...event,
+      $metadata: { ...event.$metadata, message: 'GET https://x.example/api/creators/paragonjenko' },
+    };
     stubGitHub(true, [slugEvent, event]);
     const hidden = await worker.fetch(request('/v1/logs/pairflix?search=paragonjenko', 't'), env());
     expect(await hidden.json()).toEqual({ events: [], scanned: 2 });
@@ -225,17 +240,51 @@ describe('GET /v1/runs/:project', () => {
       '/repos/ideaSquared/pairflix': { status: 200, body: { default_branch: 'master' } },
       '/repos/ideaSquared/pairflix/actions/runs': {
         status: 200,
-        body: { workflow_runs: [{ id: 5, run_number: 9, name: workflowName, event: 'push', status: 'completed', conclusion: 'failure', head_branch: 'master', head_sha: '1234567abcdef', created_at: '2026-11-14T20:00:00Z', html_url: 'https://github.com/ideaSquared/pairflix/actions/runs/5' }] },
+        body: {
+          workflow_runs: [
+            {
+              id: 5,
+              run_number: 9,
+              name: workflowName,
+              event: 'push',
+              status: 'completed',
+              conclusion: 'failure',
+              head_branch: 'master',
+              head_sha: '1234567abcdef',
+              created_at: '2026-11-14T20:00:00Z',
+              html_url: 'https://github.com/ideaSquared/pairflix/actions/runs/5',
+            },
+          ],
+        },
       },
       '/repos/ideaSquared/pairflix/actions/runs/5/jobs': {
         status: 200,
-        body: { jobs: [{ id: 10, name: jobName, status: 'completed', conclusion: 'failure', started_at: null, completed_at: null, steps: [{ name: stepName, conclusion: 'failure' }] }, ...extraJobs] },
+        body: {
+          jobs: [
+            {
+              id: 10,
+              name: jobName,
+              status: 'completed',
+              conclusion: 'failure',
+              started_at: null,
+              completed_at: null,
+              steps: [{ name: stepName, conclusion: 'failure' }],
+            },
+            ...extraJobs,
+          ],
+        },
       },
       '/repos/ideaSquared/pairflix/actions/jobs/10/logs': { status: 302, location: signed },
       ...Object.fromEntries(
-        Array.from({ length: 20 }, (_, i) => [`/repos/ideaSquared/pairflix/actions/jobs/${100 + i}/logs`, { status: 200, text: `job ${100 + i} failed` }]),
+        Array.from({ length: 20 }, (_, i) => [
+          `/repos/ideaSquared/pairflix/actions/jobs/${100 + i}/logs`,
+          { status: 200, text: `job ${100 + i} failed` },
+        ]),
       ),
-      [signed]: { status: 200, text: 'login failed for alex@example.com\ntoken=ghp_abcdefghijklmnopqrstuvwxyz0123\nGET https://api.example.com/api/households/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/pick 500' },
+      [signed]: {
+        status: 200,
+        text: 'login failed for alex@example.com\ntoken=ghp_abcdefghijklmnopqrstuvwxyz0123\nGET https://api.example.com/api/households/3f2b8c1e-9d4a-4b7e-8f1a-2c3d4e5f6a7b/pick 500',
+      },
     };
     const calls: string[] = [];
     vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
@@ -244,7 +293,10 @@ describe('GET /v1/runs/:project', () => {
       const route = routes[input] ?? routes[parsed.pathname];
       if (!route) return new Response('not found', { status: 404 });
       const headers = route.location ? { location: route.location } : undefined;
-      return new Response(route.text ?? (route.body === undefined ? null : JSON.stringify(route.body)), { status: route.status, headers });
+      return new Response(route.text ?? (route.body === undefined ? null : JSON.stringify(route.body)), {
+        status: route.status,
+        headers,
+      });
     });
     return calls;
   }
@@ -254,7 +306,20 @@ describe('GET /v1/runs/:project', () => {
     const response = await worker.fetch(request('/v1/runs/pairflix?limit=5', 't'), env());
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      runs: [{ id: 5, number: 9, workflow: 'CI', event: 'push', status: 'completed', conclusion: 'failure', branch: 'master', sha: '1234567', createdAt: '2026-11-14T20:00:00Z', url: 'https://github.com/ideaSquared/pairflix/actions/runs/5' }],
+      runs: [
+        {
+          id: 5,
+          number: 9,
+          workflow: 'CI',
+          event: 'push',
+          status: 'completed',
+          conclusion: 'failure',
+          branch: 'master',
+          sha: '1234567',
+          createdAt: '2026-11-14T20:00:00Z',
+          url: 'https://github.com/ideaSquared/pairflix/actions/runs/5',
+        },
+      ],
     });
   });
 
@@ -278,7 +343,11 @@ describe('GET /v1/runs/:project', () => {
   });
 
   it('scrubs workflow, job and step names', async () => {
-    stubRuns(true, { workflowName: 'CI for alex@example.com', jobName: 'deploy to 203.0.113.42', stepName: 'notify bob@example.com' });
+    stubRuns(true, {
+      workflowName: 'CI for alex@example.com',
+      jobName: 'deploy to 203.0.113.42',
+      stepName: 'notify bob@example.com',
+    });
     const runsBody = JSON.stringify(await (await worker.fetch(request('/v1/runs/pairflix', 't'), env())).json());
     const runBody = JSON.stringify(await (await worker.fetch(request('/v1/runs/pairflix/5', 't'), env())).json());
     ['alex@example.com', '203.0.113.42', 'bob@example.com'].forEach((leak) => {
@@ -289,9 +358,18 @@ describe('GET /v1/runs/:project', () => {
   });
 
   it('fetches logs for at most ten failed jobs and marks the rest', async () => {
-    const extraJobs = Array.from({ length: 12 }, (_, i) => ({ id: 100 + i, name: `shard ${i}`, status: 'completed', conclusion: 'failure', started_at: null, completed_at: null }));
+    const extraJobs = Array.from({ length: 12 }, (_, i) => ({
+      id: 100 + i,
+      name: `shard ${i}`,
+      status: 'completed',
+      conclusion: 'failure',
+      started_at: null,
+      completed_at: null,
+    }));
     stubRuns(true, { extraJobs });
-    const body = (await (await worker.fetch(request('/v1/runs/pairflix/5', 't'), env())).json()) as { jobs: Array<{ log?: string[]; logOmitted?: boolean }> };
+    const body = (await (await worker.fetch(request('/v1/runs/pairflix/5', 't'), env())).json()) as {
+      jobs: Array<{ log?: string[]; logOmitted?: boolean }>;
+    };
     expect(body.jobs.filter((job) => job.log)).toHaveLength(10);
     expect(body.jobs.filter((job) => job.logOmitted)).toHaveLength(3);
   });
@@ -316,12 +394,18 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
       ...overrides,
     });
 
-  function stubAds(push: boolean, { lines = [adsLogLine()], issues = [glitchTipIssue()], lokiStatus = 200, event = glitchTipEvent() as unknown } = {}) {
+  function stubAds(
+    push: boolean,
+    { lines = [adsLogLine()], issues = [glitchTipIssue()], lokiStatus = 200, event = glitchTipEvent() as unknown } = {},
+  ) {
     const stub = fakeHttp({
       '/user': { status: 200, body: { login: 'octocat' } },
       [TEAM('adoptdontshop')]: member(push),
       [TEAM('pairflix')]: member(push),
-      '/loki/api/v1/query_range': { status: lokiStatus, body: lokiBody(lines.map((line, i) => [`179467870${i}000000000`, line] as const)) },
+      '/loki/api/v1/query_range': {
+        status: lokiStatus,
+        body: lokiBody(lines.map((line, i) => [`179467870${i}000000000`, line] as const)),
+      },
       '/api/0/projects/ideasquared/ads-staging/issues/': { status: 200, body: issues },
       '/api/0/issues/42/events/latest/': { status: 200, body: event },
     });
@@ -329,7 +413,17 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
     return stub;
   }
 
-  const LEAKS = ['alex', 'Alex Jenkins', '203.0.113.42', '3f2b8c1e', 'permalink', 'glitchtip.example', 'userCount', 'session=abc', 'breadcrumbs'];
+  const LEAKS = [
+    'alex',
+    'Alex Jenkins',
+    '203.0.113.42',
+    '3f2b8c1e',
+    'permalink',
+    'glitchtip.example',
+    'userCount',
+    'session=abc',
+    'breadcrumbs',
+  ];
 
   describe('GET /v1/logs/ads', () => {
     it('returns sanitised Loki events', async () => {
@@ -366,7 +460,10 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
 
     it('says so when ADS logs are not configured, without asking Loki', async () => {
       const { calls } = stubAds(true);
-      const response = await worker.fetch(request('/v1/logs/ads', 't'), adsEnv({ ADS_LOKI_URL: '', ADS_ACCESS_CLIENT_SECRET: undefined }));
+      const response = await worker.fetch(
+        request('/v1/logs/ads', 't'),
+        adsEnv({ ADS_LOKI_URL: '', ADS_ACCESS_CLIENT_SECRET: undefined }),
+      );
       expect(response.status).toBe(501);
       expect(await response.json()).toEqual({ error: 'ADS logs are not configured' });
       expect(calls.some((call) => call.url.includes('loki'))).toBe(false);
@@ -418,7 +515,8 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
     const firstIssue = async (overrides: Record<string, unknown>, query = '') => {
       stubAds(true, { issues: [glitchTipIssue(overrides)] });
       const response = await worker.fetch(request(`/v1/errors/ads${query}`, 't'), adsEnv());
-      return ((await response.json()) as { issues: Array<{ title: string; culprit: string; frames?: string[] }> }).issues[0];
+      return ((await response.json()) as { issues: Array<{ title: string; culprit: string; frames?: string[] }> })
+        .issues[0];
     };
 
     it('returns only the exception type of a title, never its free-text message', async () => {
@@ -427,7 +525,9 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
     });
 
     it('templates a bare-path culprit and drops one it cannot read', async () => {
-      expect((await firstIssue({ culprit: '/api/v1/users/alex-jenkins?view=profile' }))?.culprit).toBe('/api/v1/users/:param');
+      expect((await firstIssue({ culprit: '/api/v1/users/alex-jenkins?view=profile' }))?.culprit).toBe(
+        '/api/v1/users/:param',
+      );
       expect((await firstIssue({ culprit: 'Alex Jenkins pressed save twice' }))?.culprit).toBe('');
     });
 
@@ -439,7 +539,9 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
 
     it('scrubs stack frame paths', async () => {
       const event = glitchTipEvent();
-      const values = (event.entries[0]?.data as { values: Array<{ stacktrace: { frames: Array<Record<string, unknown>> } }> }).values;
+      const values = (
+        event.entries[0]?.data as { values: Array<{ stacktrace: { frames: Array<Record<string, unknown>> } }> }
+      ).values;
       values[0]?.stacktrace.frames.push({ filename: '/opt/ads/src/alex@example.org.ts', lineNo: 9, inApp: true });
       stubAds(true, { event });
       const response = await worker.fetch(request('/v1/errors/ads?frames=true', 't'), adsEnv());
@@ -475,7 +577,10 @@ describe('adopt-dont-shop (Loki and GlitchTip behind Cloudflare Access)', () => 
       await worker.fetch(request('/v1/errors/ads', 't'), adsEnv());
       const lines = log.mock.calls.map((call) => JSON.parse(String(call[0])));
       expect(lines).toEqual([
-        expect.objectContaining({ message: 'access checked', meta: { actor: 'octocat', project: 'ads', route: 'errors', outcome: 'allowed' } }),
+        expect.objectContaining({
+          message: 'access checked',
+          meta: { actor: 'octocat', project: 'ads', route: 'errors', outcome: 'allowed' },
+        }),
       ]);
       log.mockRestore();
     });
@@ -536,13 +641,24 @@ describe('--env on /v1/logs and /v1/errors', () => {
   it('treats unsuffixed creatrgrid Workers as production', async () => {
     const { calls } = stub();
     await worker.fetch(request('/v1/logs/creatrgrid?env=production', 't'), env());
-    expect(queriedWorkers(calls)).toEqual(['creatorgrid-api', 'creatorgrid-web', 'creatorgrid-dashboard', 'creatorgrid-admin']);
+    expect(queriedWorkers(calls)).toEqual([
+      'creatorgrid-api',
+      'creatorgrid-web',
+      'creatorgrid-dashboard',
+      'creatorgrid-admin',
+    ]);
   });
 
   it('still asks for every Worker without it', async () => {
     const { calls } = stub();
     await worker.fetch(request('/v1/logs/pairflix', 't'), env());
-    expect(queriedWorkers(calls)).toEqual(['pairflix-api', 'pairflix-api-staging', 'pairflix-api-production', 'pairflix-client', 'pairflix-admin']);
+    expect(queriedWorkers(calls)).toEqual([
+      'pairflix-api',
+      'pairflix-api-staging',
+      'pairflix-api-production',
+      'pairflix-client',
+      'pairflix-admin',
+    ]);
   });
 
   it('rejects an unknown environment', async () => {
@@ -561,7 +677,8 @@ describe('--env on /v1/logs and /v1/errors', () => {
 
   const NOT_REACHABLE = (environment: string) =>
     `The ${environment} logs and errors for 'ads' are not reachable through Agent Idea yet: only the staging server's Loki and GlitchTip are behind the tunnel`;
-  const lokiSelector = (calls: Array<{ url: string }>) => new URL(calls.find((call) => call.url.includes('/loki/'))?.url ?? 'https://none.example').searchParams.get('query');
+  const lokiSelector = (calls: Array<{ url: string }>) =>
+    new URL(calls.find((call) => call.url.includes('/loki/'))?.url ?? 'https://none.example').searchParams.get('query');
 
   it('selects only env="staging" streams in Loki for ads logs', async () => {
     const { calls } = stub();
@@ -606,7 +723,6 @@ describe('--env on /v1/logs and /v1/errors', () => {
     expect(await response.json()).toEqual({ error: NOT_REACHABLE('production') });
     expect(calls.some((call) => call.url.includes('/api/0/'))).toBe(false);
   });
-
 
   it('leaves ads logs and errors unchanged without it', async () => {
     const { calls } = stub();

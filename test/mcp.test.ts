@@ -60,7 +60,9 @@ describe('check_access', () => {
   });
 
   it('returns a 403 as a tool error with the reason', async () => {
-    const { value } = api({ '/v1/access/ads': { status: 403, body: { error: 'You need to be in the ideaSquared/adoptdontshop team' } } });
+    const { value } = api({
+      '/v1/access/ads': { status: 403, body: { error: 'You need to be in the ideaSquared/adoptdontshop team' } },
+    });
     const result = await callTool('check_access', { project: 'ads' }, value);
     expect(result.isError).toBe(true);
     expect(textOf(result)).toBe('You need to be in the ideaSquared/adoptdontshop team');
@@ -110,7 +112,11 @@ describe('check_access', () => {
 describe('get_logs', () => {
   it('passes the filters to the API as its query parameters', async () => {
     const { value, requests } = api({ '/v1/logs/pairflix': { status: 200, body: { events: [], scanned: 0 } } });
-    await callTool('get_logs', { project: 'pairflix', since_hours: 24, level: 'error', search: 'youtube', limit: 10 }, value);
+    await callTool(
+      'get_logs',
+      { project: 'pairflix', since_hours: 24, level: 'error', search: 'youtube', limit: 10 },
+      value,
+    );
     expect(requests[0]?.url.searchParams.toString()).toBe('since=24&level=error&search=youtube&limit=10');
   });
 
@@ -176,7 +182,9 @@ describe('list_runs', () => {
 
 describe('get_run', () => {
   it("fetches the run's jobs with the tail", async () => {
-    const body = { jobs: [{ name: 'test', status: 'completed', conclusion: 'failure', failedSteps: ['pnpm test'], log: ['boom'] }] };
+    const body = {
+      jobs: [{ name: 'test', status: 'completed', conclusion: 'failure', failedSteps: ['pnpm test'], log: ['boom'] }],
+    };
     const { value, requests } = api({ '/v1/runs/pairflix/43639019850': { status: 200, body } });
     const result = await callTool('get_run', { project: 'pairflix', run_id: 43639019850, tail: 20 }, value);
     expect(requests[0]?.url.pathname).toBe('/v1/runs/pairflix/43639019850');
@@ -193,7 +201,19 @@ describe('get_run', () => {
 
 describe('get_errors', () => {
   it('fetches the project errors with limit and frames', async () => {
-    const body = { issues: [{ shortId: 'ADS-1', level: 'error', count: 3, firstSeen: 'a', lastSeen: 'b', title: 'TypeError', frames: ['src/x.ts:1'] }] };
+    const body = {
+      issues: [
+        {
+          shortId: 'ADS-1',
+          level: 'error',
+          count: 3,
+          firstSeen: 'a',
+          lastSeen: 'b',
+          title: 'TypeError',
+          frames: ['src/x.ts:1'],
+        },
+      ],
+    };
     const { value, requests } = api({ '/v1/errors/ads': { status: 200, body } });
     const result = await callTool('get_errors', { project: 'ads', limit: 5, frames: true }, value);
     expect(requests[0]?.url.pathname).toBe('/v1/errors/ads');
@@ -209,7 +229,15 @@ describe('get_errors', () => {
   });
 
   it('passes env to the API and returns its refusal', async () => {
-    const { value, requests } = api({ '/v1/errors/ads': { status: 400, body: { error: "The production logs and errors for 'ads' are not reachable through Agent Idea yet: only the staging server's Loki and GlitchTip are behind the tunnel" } } });
+    const { value, requests } = api({
+      '/v1/errors/ads': {
+        status: 400,
+        body: {
+          error:
+            "The production logs and errors for 'ads' are not reachable through Agent Idea yet: only the staging server's Loki and GlitchTip are behind the tunnel",
+        },
+      },
+    });
     const result = await callTool('get_errors', { project: 'ads', env: 'production' }, value);
     expect(requests[0]?.url.searchParams.get('env')).toBe('production');
     expect(result.isError).toBe(true);
@@ -235,11 +263,25 @@ describe('MCP server', () => {
   it('lists the tools, read-only, with their input schemas', async () => {
     const client = await connect(api().value);
     const { tools } = await client.listTools();
-    expect(tools.map((item) => item.name)).toEqual(['list_projects', 'check_access', 'get_logs', 'list_runs', 'get_run', 'get_errors']);
+    expect(tools.map((item) => item.name)).toEqual([
+      'list_projects',
+      'check_access',
+      'get_logs',
+      'list_runs',
+      'get_run',
+      'get_errors',
+    ]);
     const getLogs = tools.find((item) => item.name === 'get_logs');
     expect(getLogs?.annotations?.readOnlyHint).toBe(true);
     expect(getLogs?.inputSchema.required).toEqual(['project']);
-    expect(Object.keys(getLogs?.inputSchema.properties ?? {})).toEqual(['project', 'since_hours', 'level', 'env', 'search', 'limit']);
+    expect(Object.keys(getLogs?.inputSchema.properties ?? {})).toEqual([
+      'project',
+      'since_hours',
+      'level',
+      'env',
+      'search',
+      'limit',
+    ]);
   });
 
   it('calls a tool through the protocol', async () => {
@@ -250,7 +292,9 @@ describe('MCP server', () => {
   });
 
   it('returns an API refusal as a tool error through the protocol', async () => {
-    const { value } = api({ '/v1/logs/pairflix': { status: 403, body: { error: 'You need to be in the ideaSquared/pairflix team' } } });
+    const { value } = api({
+      '/v1/logs/pairflix': { status: 403, body: { error: 'You need to be in the ideaSquared/pairflix team' } },
+    });
     const client = await connect(value);
     const result = await client.callTool({ name: 'get_logs', arguments: { project: 'pairflix' } });
     expect(result.isError).toBe(true);

@@ -13,7 +13,9 @@
     "deploy": "wrangler deploy",
     "build": "tsc -p tsconfig.build.json && pnpm -C packages/log build && pnpm -C packages/ops build",
     "test": "vitest run",
-    "typecheck": "tsc && tsc -p packages/log && tsc -p packages/ops"
+    "typecheck": "tsc && tsc -p packages/log && tsc -p packages/ops",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -23,6 +25,7 @@
     "@cloudflare/workers-types": "^5.20261107.1",
     "@ideasquared/log": "workspace:*",
     "@types/node": "^24.0.0",
+    "prettier": "^3.10.1",
     "typescript": "~5.9.3",
     "vitest": "^5.0.2",
     "wrangler": "^4.158.0"

@@ -44,7 +44,14 @@ function shortTime(timestamp) {
 // One line per issue: short id, level, count, last and first seen, title, then the culprit; frames underneath.
 export function formatIssue(issue) {
     const culprit = issue.culprit ? `  (${issue.culprit})` : '';
-    const head = [issue.shortId, issue.level.toUpperCase(), `${issue.count}x`, `last ${shortTime(issue.lastSeen)}`, `first ${shortTime(issue.firstSeen)}`, `${issue.title}${culprit}`].join('  ');
+    const head = [
+        issue.shortId,
+        issue.level.toUpperCase(),
+        `${issue.count}x`,
+        `last ${shortTime(issue.lastSeen)}`,
+        `first ${shortTime(issue.firstSeen)}`,
+        `${issue.title}${culprit}`,
+    ].join('  ');
     return `${head}${(issue.frames ?? []).map((frame) => `\n    at ${frame}`).join('')}`;
 }
 export async function run(argv, deps) {
@@ -77,7 +84,13 @@ export async function run(argv, deps) {
         throw new Error(`--env must be staging or production, not '${values.env}'.\n\n${USAGE}`);
     }
     if (command === 'logs') {
-        const query = new URLSearchParams(Object.entries({ since: values.since, level: values.level, env: values.env, search: values.search, limit: values.limit }).filter((entry) => entry[1] !== undefined));
+        const query = new URLSearchParams(Object.entries({
+            since: values.since,
+            level: values.level,
+            env: values.env,
+            search: values.search,
+            limit: values.limit,
+        }).filter((entry) => entry[1] !== undefined));
         const body = (await call(deps, `/v1/logs/${encodeURIComponent(project)}?${query}`));
         if (values.json)
             return deps.out(JSON.stringify(body.events, null, 2));
@@ -87,7 +100,10 @@ export async function run(argv, deps) {
         return [...body.events].reverse().forEach((event) => deps.out(formatEvent(event)));
     }
     if (command === 'runs') {
-        const query = new URLSearchParams({ ...(values.limit ? { limit: values.limit } : {}), ...(values.failed ? { failed: 'true' } : {}) });
+        const query = new URLSearchParams({
+            ...(values.limit ? { limit: values.limit } : {}),
+            ...(values.failed ? { failed: 'true' } : {}),
+        });
         const body = (await call(deps, `/v1/runs/${encodeURIComponent(project)}?${query}`));
         if (values.json)
             return deps.out(JSON.stringify(body.runs, null, 2));
@@ -105,7 +121,11 @@ export async function run(argv, deps) {
         return body.jobs.forEach((job) => deps.out(formatJob(job)));
     }
     if (command === 'errors') {
-        const query = new URLSearchParams({ ...(values.env ? { env: values.env } : {}), ...(values.limit ? { limit: values.limit } : {}), ...(values.frames ? { frames: 'true' } : {}) });
+        const query = new URLSearchParams({
+            ...(values.env ? { env: values.env } : {}),
+            ...(values.limit ? { limit: values.limit } : {}),
+            ...(values.frames ? { frames: 'true' } : {}),
+        });
         const body = (await call(deps, `/v1/errors/${encodeURIComponent(project)}?${query}`));
         if (values.json)
             return deps.out(JSON.stringify(body.issues, null, 2));

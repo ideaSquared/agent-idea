@@ -4,7 +4,12 @@
 // - context (a request id, a job name) is attached once with `with` and carried on every line.
 // Each event is one JSON line, which Cloudflare Workers Logs and Loki both read as fields.
 
-declare const console: { debug(line: string): void; info(line: string): void; warn(line: string): void; error(line: string): void };
+declare const console: {
+  debug(line: string): void;
+  info(line: string): void;
+  warn(line: string): void;
+  error(line: string): void;
+};
 
 export type Level = 'debug' | 'info' | 'warn' | 'error';
 export type FieldValue = string | number | boolean | null;
@@ -85,7 +90,9 @@ function describeError(error: unknown): LogEvent['error'] {
 export function createLogger<const F extends string>(options: LoggerOptions<F>): Logger<F> {
   const forbidden = options.fields.filter((field) => FORBIDDEN_FIELD.test(field) && !ALLOWED_FIELDS.has(field));
   if (forbidden.length > 0) {
-    throw new Error(`Fields that hold personal data or secrets cannot be logged: ${forbidden.join(', ')}. Log an id instead.`);
+    throw new Error(
+      `Fields that hold personal data or secrets cannot be logged: ${forbidden.join(', ')}. Log an id instead.`,
+    );
   }
   const declared = new Set<string>(options.fields);
   const minimum = ORDER[options.level ?? 'info'];

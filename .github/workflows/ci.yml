@@ -40,6 +40,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm test
       # dist/ is committed so `pnpm add -g github:ideaSquared/agent-idea` works without a build step.

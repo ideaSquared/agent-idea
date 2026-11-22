@@ -14,7 +14,9 @@ const invalid = (run: () => unknown) => {
   try {
     run();
   } catch (error) {
-    return error instanceof Error ? { name: error.name, message: error.message, code: (error as { code?: string }).code } : null;
+    return error instanceof Error
+      ? { name: error.name, message: error.message, code: (error as { code?: string }).code }
+      : null;
   }
   return null;
 };
