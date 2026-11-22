@@ -77,8 +77,6 @@ export const PROJECTS: Readonly<Record<string, Project>> = {
       production: ['creatorgrid-api', 'creatorgrid-web', 'creatorgrid-dashboard', 'creatorgrid-admin'],
     },
   },
-  gaminginit: { team: 'gaminginit', repo: 'ideaSquared/gaminginit', workers: ['wardogs-community-site'] },
-  'gaminginit-bot': { team: 'gaminginit', repo: 'ideaSquared/gaminginit-bot', workers: ['wardogs-discord-bot'] },
   'ideasquared-bot': { team: 'ops-platform', repo: 'ideaSquared/ideasquared-bot', workers: ['ideasquared-bot'] },
   pairflix: {
     team: 'pairflix',
