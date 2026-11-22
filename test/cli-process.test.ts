@@ -27,4 +27,23 @@ describe('idea command line', () => {
       expect(result.stdout).toContain('idea logs <project>');
     }
   });
+
+  it('exits non-zero and writes the reason to stderr, not stdout, for an unknown option', () => {
+    const result = idea('logs', 'pairflix', '--bogus');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--bogus');
+    expect(result.stdout).toBe('');
+  });
+
+  it('exits non-zero for an unknown command', () => {
+    const result = idea('nonsense', 'pairflix');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Unknown command 'nonsense'");
+    expect(result.stdout).toBe('');
+  });
+
+  it('prints no colour codes', () => {
+    // eslint-disable-next-line no-control-regex -- ESC is what starts an ANSI code
+    expect(idea('--help').stdout).not.toMatch(/\x1b\[/);
+  });
 });
