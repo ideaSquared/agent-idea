@@ -287,7 +287,7 @@ describe('GET /v1/runs/:project', () => {
       },
     };
     const calls: string[] = [];
-    vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+    vi.stubGlobal('fetch', async (input: string) => {
       calls.push(input);
       const parsed = new URL(input);
       const route = routes[input] ?? routes[parsed.pathname];

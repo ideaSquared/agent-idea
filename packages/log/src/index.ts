@@ -30,6 +30,7 @@ export type Sink = (event: LogEvent) => void;
 // A message must be a string literal. `log.info(someString)` and `log.info(\`sent to ${email}\`)` do not compile:
 // their types (`string`, or the pattern \`sent to ${string}\`) turn Record<M, 1> into an index signature, which `{}`
 // satisfies, whereas a literal such as 'sync failed' gives a required property, which `{}` does not.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty object type is the point of this check
 export type Message<M extends string> = {} extends Record<M, 1> ? never : M;
 
 export type Fields<F extends string> = Partial<Record<F, FieldValue>>;

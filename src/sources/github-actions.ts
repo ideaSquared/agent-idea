@@ -141,6 +141,7 @@ export async function runJobs(repo: string, token: string, runId: number, fetche
 
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z ?/;
 // ANSI colour codes, which CI logs are full of.
+// eslint-disable-next-line no-control-regex -- ESC is what starts an ANSI code
 const ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 // A line longer than this is cut before anything else is done with it, so one huge line can't use up memory.

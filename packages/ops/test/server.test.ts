@@ -526,6 +526,7 @@ describe('createOpsHandler configuration', () => {
 
   it('requires exactly one of repo and authorize', () => {
     const authorize = async (): Promise<Access> => ({ outcome: 'allowed', login: 'octocat' });
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- dropping `repo` is the point
     const { repo: _repo, ...noAccess } = base;
     // The types already forbid these; the cast reaches the startup check that plain JavaScript callers hit.
     const loose = (options: object) => options as unknown as OpsHandlerOptions;
