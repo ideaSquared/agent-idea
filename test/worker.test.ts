@@ -120,6 +120,7 @@ describe('GET /v1/access/:project', () => {
     ['gaminginit', 'gaminginit'],
     ['gaminginit-bot', 'gaminginit'],
     ['ideasquared-bot', 'ops-platform'],
+    ['agent-idea', 'ops-platform'],
   ])('checks %s against the %s team', async (project, team) => {
     const { calls } = stubGitHub(true);
     vi.stubGlobal(
@@ -613,6 +614,7 @@ describe('--env on /v1/logs and /v1/errors', () => {
       [TEAM('creatrgrid')]: write,
       [TEAM('gaminginit')]: write,
       [TEAM('adoptdontshop')]: write,
+      [TEAM('ops-platform')]: write,
       [LOGS_PATH]: { status: 200, body: { success: true, result: { events: { events: [] } } } },
       '/loki/api/v1/query_range': { status: 200, body: lokiBody([]) },
       '/api/0/projects/ideasquared/ads-staging/issues/': { status: 200, body: [] },
@@ -648,6 +650,16 @@ describe('--env on /v1/logs and /v1/errors', () => {
       'creatorgrid-dashboard',
       'creatorgrid-admin',
     ]);
+  });
+
+  it("asks for agent-idea's own Worker in production and for nothing in staging, which it does not have", async () => {
+    const { calls } = stub();
+    await worker.fetch(request('/v1/logs/agent-idea?env=production', 't'), env());
+    expect(queriedWorkers(calls)).toEqual(['agent-idea']);
+    calls.length = 0;
+    const staging = await worker.fetch(request('/v1/logs/agent-idea?env=staging', 't'), env());
+    expect(staging.status).toBe(200);
+    expect(calls.some((call) => call.url.includes('telemetry'))).toBe(false);
   });
 
   it('still asks for every Worker without it', async () => {

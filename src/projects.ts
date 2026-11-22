@@ -46,6 +46,13 @@ export const PROJECTS: Readonly<Record<string, Project>> = {
     errors: 'glitchtip',
     reachable: 'staging',
   },
+  // agent-idea's own Worker. It has no staging, so `--env staging` finds nothing.
+  'agent-idea': {
+    team: 'ops-platform',
+    repo: 'ideaSquared/agent-idea',
+    workers: ['agent-idea'],
+    environments: { staging: [], production: ['agent-idea'] },
+  },
   creatrgrid: {
     team: 'creatrgrid',
     repo: 'ideaSquared/creatrgrid',
