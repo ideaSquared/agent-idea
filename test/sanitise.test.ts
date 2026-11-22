@@ -5,6 +5,7 @@ import { sanitiseEvent, scrubText } from '../src/sanitise.ts';
 const KEY = 'test-pseudonym-key';
 const RULES = routeRules('ads');
 const CREATRGRID = routeRules('creatrgrid');
+const AGENT_IDEA = routeRules('agent-idea');
 
 // Each line holds personal data or a secret. None of the listed values may survive scrubbing.
 const PII_CORPUS: ReadonlyArray<{ line: string; leaks: string[] }> = [
@@ -172,6 +173,11 @@ describe('sanitiseEvent', () => {
     ['alex', 'example.com', '203.0.113.42', 'Mozilla', 'session', 'token=abc', '3f2b8c1e'].forEach((leak) =>
       expect(serialised).not.toContain(leak),
     );
+  });
+
+  it("keeps agent-idea's own route words and templates the ids and run numbers", async () => {
+    const event = await sanitiseEvent({ timestamp: 0, route: '/v1/runs/pairflix/43639019850' }, KEY, AGENT_IDEA);
+    expect(event.route).toBe('/v1/runs/pairflix/:param');
   });
 
   it('turns path segments that are not known route words into :param, so slugs never leave', async () => {

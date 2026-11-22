@@ -38,7 +38,7 @@ idea access ads                               # check you are in the project's t
   environment. Anything else is a usage error. For Workers Logs it works by Worker name (the lists in
   [`src/projects.ts`](src/projects.ts)): a Worker whose name does not say its environment (for example `pairflix-api`)
   is left out of a filtered query. A project that cannot tell environments apart fails with a message naming the
-  project instead of returning everything. That is every project except creatrgrid, pairflix and ads today. For
+  project instead of returning everything. That is every project except agent-idea, creatrgrid, pairflix and ads today (agent-idea has no staging, so its `--env staging` returns nothing). For
   **ads**, Loki's `env` label and GlitchTip's `environment` carry `DEPLOY_ENV` (`staging` or `production`; ADS sets it
   per stack), so `--env staging` filters Loki by `env="staging"` and GlitchTip by `environment=staging`. Only the
   staging server's Loki and GlitchTip are behind the tunnel, so `--env production` for ads fails with a 400 saying so
@@ -99,7 +99,7 @@ Or add it to a repo's `.mcp.json`:
 - `gh auth token` needs the `read:org` scope to read team membership; `gh auth login` grants it by default. If you
   signed in with a narrower token, run `gh auth refresh -s read:org`.
 - Each project has one team: ads `adoptdontshop`, creatrgrid `creatrgrid`, pairflix `pairflix`, gaminginit and
-  gaminginit-bot `gaminginit`, ideasquared-bot `ops-platform` (see [`src/projects.ts`](src/projects.ts)).
+  gaminginit-bot `gaminginit`, ideasquared-bot and agent-idea `ops-platform` (see [`src/projects.ts`](src/projects.ts)).
 - The answer is cached in KV for 5 minutes under a SHA-256 of the token and the team, with a `team-access:` key prefix
   so an entry from the old repo check can never grant access. The token itself is never stored or logged.
 - Every request logs one audit line: GitHub login, project, route and outcome. Never the results.
@@ -140,7 +140,7 @@ emails are never written in the first place. The sanitiser is the safety net, no
 
 | Source | Projects | How |
 | --- | --- | --- |
-| Cloudflare Workers Logs | creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix | Workers Observability telemetry query API, filtered to the project's Worker scripts. Only the timestamp, level, service, path, status, wall time and message are read; Cloudflare's client IP, location, headers and TLS details are never touched. |
+| Cloudflare Workers Logs | agent-idea, creatrgrid, gaminginit, gaminginit-bot, ideasquared-bot, pairflix | Workers Observability telemetry query API, filtered to the project's Worker scripts. Only the timestamp, level, service, path, status, wall time and message are read; Cloudflare's client IP, location, headers and TLS details are never touched. |
 | Loki | ads | adopt-dont-shop staging's Loki, reached through a Cloudflare Tunnel behind Cloudflare Access (see [Phase 4](#phase-4-adopt-dont-shop)). A LogQL `query_range` selects by the `service`, `level` and (with `--env staging`) `env` labels only, with no line filter. From each `@ideasquared/log` JSON line only the timestamp, level, service, message, `meta.route`, `meta.status`, `meta.durationMs`, the error type and the stack's `at` lines are read; other meta fields and the error message are never touched. |
 | GlitchTip | ads | adopt-dont-shop's GlitchTip (Sentry API), through the same tunnel. The project's unresolved issues: short id, scrubbed title and culprit, count, first and last seen, level. Optionally the latest event's stack frames as `file:line`. Never the permalink, event bodies, exception values, request data, user, tags, breadcrumbs or source context. |
 | GitHub Actions | all | GitHub's API, called with **your own** token (the one that passed the team check), so no extra secret. Runs list the workflow, event, result, short commit and time; the branch only when it is the default branch, and never the commit message, PR title or who triggered it. A run's failed jobs come with the last lines of their log (80 by default, `--tail` up to 300), each line sanitised like any log message. |

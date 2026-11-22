@@ -296,6 +296,18 @@ const PROJECT_WORDS: Readonly<Record<string, readonly string[]>> = {
     'match',
     'leaderboard',
   ],
+  'agent-idea': [
+    'access',
+    'logs',
+    'errors',
+    'runs',
+    'ads',
+    'creatrgrid',
+    'gaminginit',
+    'gaminginit-bot',
+    'ideasquared-bot',
+    'pairflix',
+  ],
   'ideasquared-bot': ['ads', 'pairflix', 'creatrgrid', 'gaminginit', 'ideasquared', 'ship'],
   pairflix: ['entitlements', 'households', 'pick', 'pick-events', 'taste-onboarding', 'history', 'providers'],
 };
