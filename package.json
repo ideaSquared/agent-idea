@@ -36,7 +36,7 @@
     "globals": "^17.14.0",
     "husky": "^9.1.7",
     "prettier": "^3.10.1",
-    "typescript": "~5.9.3",
+    "typescript": "~6.0.3",
     "typescript-eslint": "^8.73.0",
     "vitest": "^5.0.2",
     "wrangler": "^4.158.0"
