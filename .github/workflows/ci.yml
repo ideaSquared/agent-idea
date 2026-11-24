@@ -7,9 +7,10 @@ on:
   workflow_dispatch:
 
 # Runs on main go one at a time, in the order they were pushed, so an older commit never deploys after a newer one.
+# A newer push to a pull request cancels its superseded run.
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'main' || github.run_id }}
-  cancel-in-progress: false
+  group: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
